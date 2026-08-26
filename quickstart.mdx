@@ -1,0 +1,97 @@
+---
+title: "Sandbox quickstart"
+description: "Register a fresh sandbox merchant and reach a shipment-ready state."
+---
+
+Start with a new email address, a unique ten-digit commercial-registration number, and a fresh device UUID. The sandbox sends the one-time code through its configured non-production delivery channel.
+
+<Steps>
+  <Step title="Register">
+    Registration documents are mandatory. They are uploaded as raw bytes and stored in the sandbox's isolated object-storage prefix; the storage credential and object key are never disclosed to the registering merchant.
+
+    ```bash
+    curl --fail-with-body -X POST "$BASE_URL/v2/merchant-registrations" \
+      -H 'Content-Type: application/json' \
+      -d '{
+            "email": "'"$MERCHANT_EMAIL"'",
+            "storeName": "Sandbox Store",
+            "legalBasis": "COMMERCIAL_ENTITY",
+            "commercialRegistrationNumber": "'"$CR_NUMBER"'",
+            "fullName": "Sandbox Operator",
+            "mobileNumber": "'"$MOBILE"'",
+            "deviceReference": "'"$DEVICE_UUID"'"
+          }' \
+      > registration.json
+    
+    REGISTRATION_ID=$(jq -r .registrationId registration.json)
+    UPLOAD_CAPABILITY=$(jq -r .uploadCapability registration.json)
+    ```
+
+    `mobileNumber` is the Saudi mobile without the country code, so it starts with `5` and is nine digits. `deviceReference` is a UUID your client generates.
+
+    For a `FREELANCER`, omit `commercialRegistrationNumber` entirely — it is forbidden for that legal basis — and upload `FREELANCE_CERTIFICATE` in place of `COMMERCIAL_REGISTRATION`.
+
+    The response carries a short-lived upload capability. It authorises the document uploads in the next step and nothing else.
+  </Step>
+  <Step title="Upload the documents">
+    Uploads accept `application/pdf`, `image/jpeg`, or `image/png`, up to 1 MiB each. Every merchant uploads `NATIONAL_ADDRESS`; a commercial entity also uploads `COMMERCIAL_REGISTRATION`.
+
+    ```bash
+    curl --fail-with-body -X PUT \
+      "$BASE_URL/v2/account-registrations/$REGISTRATION_ID/documents/COMMERCIAL_REGISTRATION" \
+      -H "Registration-Upload-Capability: $UPLOAD_CAPABILITY" \
+      -H "X-Document-Filename: evidence.png" \
+      -H 'Content-Type: image/png' \
+      --data-binary @evidence.png
+    ```
+
+    A storage-provider failure is reported as `503` with a machine code. It is never converted into a fake successful upload.
+  </Step>
+  <Step title="Verify the one-time code">
+    ```bash
+    curl --fail-with-body -X POST \
+      "$BASE_URL/v2/account-registrations/$REGISTRATION_ID/verifications" \
+      -H 'Content-Type: application/json' \
+      -d '{"otp":"'"$OTP"'"}'
+    ```
+
+    Verification is what completes registration. Until it succeeds, the registration is a draft.
+  </Step>
+  <Step title="Issue an API credential">
+    From the authenticated merchant session, create the credential and store the secret — it is returned exactly once.
+
+    ```bash
+    curl --fail-with-body -X POST "$BASE_URL/v2/merchant-api-credential" \
+      -H "Authorization: Bearer $SESSION_TOKEN"
+    ```
+
+    See [Authentication](/authentication) for rotation and scopes.
+  </Step>
+  <Step title="Bootstrap the sandbox fixtures">
+    ```bash
+    curl --fail-with-body -X POST "$BASE_URL/v2/external/sandbox/bootstrap" \
+      -H "Authorization: Bearer $ACCESS_TOKEN"
+    
+    curl "$BASE_URL/v2/external/sandbox/readiness" \
+      -H "Authorization: Bearer $ACCESS_TOKEN"
+    ```
+
+    Readiness reports each fixture the sandbox needs before a shipment can be created. Poll it until every item is satisfied rather than sleeping for a fixed interval.
+  </Step>
+</Steps>
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Create a shipment" icon="box" href="/shipments">
+    Quote a price, then commit the shipment.
+  </Card>
+
+  <Card title="Receive events" icon="webhook" href="/webhooks">
+    Subscribe an endpoint and verify signatures.
+  </Card>
+</CardGroup>
+
+<Note>
+  A freelancer account registers through the same flow with a different document set. Registration requirements are enforced by the server; read them from the registration response rather than hard-coding a list.
+</Note>

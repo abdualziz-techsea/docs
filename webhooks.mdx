@@ -1,0 +1,135 @@
+---
+title: "Webhooks"
+description: "Subscribe to shipment events, verify signatures, and inspect deliveries."
+---
+
+Webhooks are how DropHub tells your system that something happened, without you polling for it. Managing them requires the `webhooks:manage` scope.
+
+## Register an endpoint
+
+```bash
+curl -X POST "$BASE_URL/v2/external/webhook-endpoints" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "url": "https://merchant.example/webhooks/drophub",
+        "subscribedEventTypes": ["shipment.created", "shipment.delivered"]
+      }'
+```
+
+The response includes the signing secret. Store it immediately — like the API secret, it is disclosed once and can afterwards only be rotated.
+
+## Event types
+
+| Event | Fires when |
+| --- | --- |
+| `shipment.created` | A shipment is created |
+| `shipment.confirmed` | A shipment is confirmed |
+| `shipment.assigned` | A shipment is assigned for dispatch |
+| `driver.accepted` | A driver accepted the offer |
+| `driver.rejected` | A driver rejected the offer |
+| `driver.arrived_at_pickup` | The driver reached the pickup location |
+| `shipment.picked_up` | The shipment was collected |
+| `driver.arrived_at_dropoff` | The driver reached the destination |
+| `shipment.delivered` | The shipment was delivered |
+| `shipment.delivery_failed` | Delivery did not succeed |
+| `shipment.cancelled` | The shipment was cancelled |
+
+Subscribe to what you act on. An endpoint may subscribe to between 1 and all 11 event types.
+
+## The envelope
+
+Every delivery is a JSON body with a stable envelope:
+
+```json
+{
+  "id": "018f2d8a-1f00-7000-8000-000000000301",
+  "type": "shipment.delivered",
+  "occurredAt": "2026-08-22T18:30:00Z",
+  "sequence": 7,
+  "apiVersion": "2026-08-25",
+  "data": { }
+}
+```
+
+`sequence` orders events for a shipment. `apiVersion` identifies the payload contract.
+
+## Verifying the signature
+
+Each request carries three headers:
+
+| Header | Contents |
+| --- | --- |
+| `Webhook-Id` | Unique delivery identifier |
+| `Webhook-Timestamp` | Unix timestamp in seconds |
+| `Webhook-Signature` | `v1=` followed by a lowercase hex HMAC-SHA256 |
+
+The signed message is the delivery id, the timestamp, and the **raw request body**, joined with literal `.` characters:
+
+```text
+{Webhook-Id}.{Webhook-Timestamp}.{raw body}
+```
+
+<Warning>
+  Verify against the raw bytes you received, before any JSON parsing or re-serialisation. Re-encoding the body changes it, and the signature will no longer match.
+</Warning>
+
+```python
+import hashlib, hmac
+
+def verify(secret: bytes, webhook_id: str, timestamp: str, raw_body: bytes, header: str) -> bool:
+    message = webhook_id.encode() + b"." + timestamp.encode() + b"." + raw_body
+    expected = "v1=" + hmac.new(secret, message, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, header)
+```
+
+<Note>
+  Compare in constant time, as above. Also reject deliveries whose `Webhook-Timestamp` is far from your current clock — a valid signature on a very old request is a replay.
+</Note>
+
+## Rotating the secret
+
+```bash
+curl -X POST "$BASE_URL/v2/external/webhook-endpoints/$ENDPOINT_ID/rotate-secret" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "If-Match: \"$VERSION\""
+```
+
+Rotation returns a new secret and sets `previousSecretValidUntil` on the endpoint. Until that moment **both** secrets produce valid signatures, so accept either during the overlap and drop the old one once it passes.
+
+## Responding to a delivery
+
+Return a `2xx` quickly. Do the work afterwards — acknowledge receipt, then process asynchronously. A non-`2xx` or a timeout is treated as a failed attempt and retried.
+
+Because retries exist, your handler must be **idempotent**: deduplicate on `id`, and ignore an event whose `sequence` you have already applied for that shipment.
+
+## Inspecting deliveries
+
+```bash
+curl "$BASE_URL/v2/external/webhook-deliveries?limit=50" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+Retrieve one with `GET /v2/external/webhook-deliveries/{deliveryId}` to see its attempt history.
+
+### Replay
+
+```bash
+curl -X POST "$BASE_URL/v2/external/webhook-deliveries/$DELIVERY_ID/replay" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+Replay returns `202` — it queues the delivery rather than performing it inline. A `409` means the delivery is not in a replayable state.
+
+## Testing an endpoint
+
+```bash
+curl -X POST "$BASE_URL/v2/external/webhook-endpoints/$ENDPOINT_ID/test" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+This sends a synthetic, correctly signed event to the endpoint so you can exercise your verification path before real traffic depends on it.
+
+## Pausing
+
+An endpoint is `ACTIVE` or `PAUSED`. Pause it with a `PATCH` (carrying `If-Match`) while you deploy a change, rather than deleting and recreating it — deletion loses the secret and the delivery history.

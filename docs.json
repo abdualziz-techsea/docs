@@ -1,0 +1,105 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "DropHub External API",
+  "colors": {
+    "primary": "#F0630F",
+    "light": "#F0630F",
+    "dark": "#D95609"
+  },
+  "favicon": {
+    "light": "/images/favicon.png",
+    "dark": "/images/favicon.png"
+  },
+  "navigation": {
+    "pages": [
+      {
+        "group": "Getting Started",
+        "pages": [
+          "index",
+          "quickstart"
+        ]
+      }
+    ],
+    "groups": [
+      {
+        "group": "Getting Started",
+        "pages": [
+          "quickstart",
+          "overview",
+          "environments"
+        ]
+      },
+      {
+        "group": "Authentication",
+        "pages": [
+          "authentication"
+        ]
+      },
+      {
+        "group": "Shipments",
+        "pages": [
+          "shipments",
+          "tracking",
+          "cancellation"
+        ]
+      },
+      {
+        "group": "Events",
+        "pages": [
+          "webhooks"
+        ]
+      },
+      {
+        "group": "Request semantics",
+        "pages": [
+          "idempotency-and-etags",
+          "errors"
+        ]
+      },
+      {
+        "group": "API reference",
+        "openapi": "openapi.yaml"
+      }
+    ]
+  },
+  "logo": {
+    "light": "/images/logo.png",
+    "dark": "/images/logo.png"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Support",
+        "href": "mailto:hi@mintlify.com"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Dashboard",
+      "href": "https://app.mintlify.com"
+    }
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "perplexity",
+      "mcp",
+      "cursor",
+      "vscode"
+    ]
+  },
+  "footer": {
+    "socials": {
+      "x": "https://x.com/mintlify",
+      "github": "https://github.com/mintlify",
+      "linkedin": "https://linkedin.com/company/mintlify"
+    }
+  },
+  "api": {
+    "openapi": "openapi.yaml"
+  }
+}

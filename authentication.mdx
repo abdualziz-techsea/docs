@@ -1,0 +1,80 @@
+---
+title: "Authentication"
+description: "OAuth 2.0 client credentials, the three scopes, and how tokens behave."
+---
+
+External integrations authenticate with the OAuth 2.0 **client-credentials** grant. There is no user in the loop: the credential belongs to your merchant company, and every request it makes is attributed to that company.
+
+## Issuing a credential
+
+An API credential is created from an authenticated merchant session, not from an API token — a credential cannot mint its successor.
+
+<Steps>
+  <Step title="Create the credential">
+    `POST /v2/merchant-api-credential` returns the `client_id` and, exactly once, the `client_secret`.
+  </Step>
+  <Step title="Store the secret immediately">
+    The secret is shown on creation and never again. DropHub stores only a verifier.
+  </Step>
+  <Step title="Rotate on a schedule">
+    `POST /v2/merchant-api-credential/secret-rotations` issues a new secret. Rotation requires an `If-Match` header carrying the credential's current ETag.
+  </Step>
+</Steps>
+
+<Warning>
+  If the secret is lost, it cannot be recovered — only rotated. Treat rotation as the recovery path, and expect the previous secret to stop working once rotation completes.
+</Warning>
+
+## Requesting a token
+
+```bash
+curl -X POST "$BASE_URL/oauth/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d grant_type=client_credentials \
+  -d client_id="$CLIENT_ID" \
+  -d client_secret="$CLIENT_SECRET"
+```
+
+HTTP Basic authentication is the preferred way to present the credentials; the form-body `client_id` and `client_secret` parameters above are the supported alternative.
+
+```bash
+curl -X POST "$BASE_URL/oauth/token" \
+  -u "$CLIENT_ID:$CLIENT_SECRET" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d grant_type=client_credentials
+```
+
+The response is a short-lived signed JWT bearer token.
+
+Use the token as a bearer credential:
+
+```bash
+curl "$BASE_URL/v2/external/shipments" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+## Scopes
+
+A token carries only the scopes its credential was granted. A request outside them is rejected with `403`, not `401` — the caller is known, and not permitted.
+
+| Scope | Grants |
+| --- | --- |
+| `shipments:read` | Read shipments, tracking, profile, branches, and pickup locations |
+| `shipments:write` | Create and cancel shipments |
+| `webhooks:manage` | Manage webhook endpoints, read delivery history, and replay deliveries |
+
+## Token lifecycle
+
+Tokens are short-lived. Read `expires_in` from the token response rather than assuming a duration — it is the only value that stays correct if the lifetime changes.
+
+Scopes are fixed to what the credential was granted; the token request takes no `scope` parameter.
+
+<Tip>
+  Cache the token in memory and reuse it until shortly before expiry. Requesting a fresh token per API call is the most common cause of hitting the rate limit on `/oauth/token`.
+</Tip>
+
+Refresh proactively — a little before expiry, not after the first `401`. When a request does fail with `401`, the response carries a `WWW-Authenticate: Bearer` challenge; obtain a new token and retry once. Repeated `401`s after a fresh token mean the credential itself was revoked or rotated.
+
+<Info>
+  `401` means the token is missing, malformed, or expired. `403` means the token is valid but the credential lacks the scope or the resource belongs to another company. Retrying a `403` with the same credential will never succeed.
+</Info>

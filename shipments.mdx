@@ -1,0 +1,126 @@
+---
+title: "Shipments"
+description: "Quote a price, create a shipment, and read it back."
+---
+
+A shipment is created against a **branch** and a **pickup location**, both identified by codes that belong to your merchant company. Read them from `/v2/external/branches` and `/v2/external/pickup-locations` rather than hard-coding them.
+
+## Estimate a price
+
+Pricing is a separate, side-effect-free call. It commits nothing.
+
+```bash
+curl -X POST "$BASE_URL/v2/external/shipment-price-estimates" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "pickup":   { "latitude": 24.7136,   "longitude": 46.6753 },
+        "delivery": { "latitude": 24.774265, "longitude": 46.738586 },
+        "destinationCityCode": "RUH"
+      }'
+```
+
+<Note>
+  A `503` here means the routing provider is unavailable. It is a transient condition — retry with backoff. It is never reported as a successful estimate with a guessed price.
+</Note>
+
+## Create a shipment
+
+`POST /v2/external/shipments` requires an `Idempotency-Key`. See [Idempotency and ETags](/idempotency-and-etags) for the key's grammar and replay semantics.
+
+```bash
+curl -X POST "$BASE_URL/v2/external/shipments" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Idempotency-Key: merchant-order-20260822-0001" \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "externalReference": "ORDER-10231",
+        "branchCode": "RUH_MAIN",
+        "pickupLocationCode": "RUH_WAREHOUSE_1",
+        "recipient": { "...": "see the API reference" },
+        "destination": { "...": "see the API reference" },
+        "declaredValue": 250.00,
+        "codAmount": 0,
+        "currency": "SAR",
+        "paymentMethod": "PREPAID",
+        "pickupWindowStart": "2026-08-22T09:00:00Z",
+        "pickupWindowEnd": "2026-08-22T12:00:00Z",
+        "items": [ { "...": "at least one" } ],
+        "requirements": []
+      }'
+```
+
+Every field above is required. A few are worth calling out:
+
+| Field | Notes |
+| --- | --- |
+| `externalReference` | Your own order identifier, 1–128 characters. Filterable when listing. |
+| `branchCode`, `pickupLocationCode` | Uppercase codes, 2–64 characters. |
+| `declaredValue`, `codAmount` | Exact decimals with a matching `currency`. |
+| `paymentMethod` | `PREPAID` or `COD`. Use `COD` when `codAmount` is non-zero. |
+| `items` | Between 1 and 100 items. |
+| `requirements` | Up to 20 unique uppercase capability codes. Send `[]` when there are none. |
+
+A `201` means the shipment was created. A `200` means this exact request was already processed and you are seeing the original result — see [idempotency](/idempotency-and-etags).
+
+## Lifecycle
+
+A shipment moves through these states:
+
+| State | Meaning |
+| --- | --- |
+| `PENDING_APPROVAL` | Created, awaiting approval |
+| `READY_FOR_DISPATCH` | Approved, waiting to be offered |
+| `OFFERED` | Offered to a driver |
+| `ACCEPTED` | A driver accepted it |
+| `DISPATCH_UNRESOLVED` | No driver could be assigned |
+| `PICKED_UP` | Collected from the pickup location |
+| `OUT_FOR_DELIVERY` | On the way to the recipient |
+| `DELIVERED` | Terminal — delivered |
+| `DELIVERY_FAILED` | Terminal — delivery did not succeed |
+| `CANCELLED` | Terminal — cancelled |
+
+<Tip>
+  Treat state as a value to read, not a sequence to assume. `DISPATCH_UNRESOLVED` and `DELIVERY_FAILED` are ordinary outcomes, and a shipment can be cancelled from several states.
+</Tip>
+
+## List and filter
+
+```bash
+curl "$BASE_URL/v2/external/shipments?state=OUT_FOR_DELIVERY&limit=50" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+Supported filters are `state` and `externalReference`.
+
+### Pagination
+
+Collections are cursor-paginated and bounded.
+
+- `limit` defaults to `25` and maxes at `100`. A value outside `1..100` is **rejected with `400`**, never silently clamped.
+- `cursor` is the opaque `page.nextCursor` from the previous response.
+- `page.hasMore` is exactly `nextCursor != null`.
+
+```bash
+CURSOR=$(curl -s "$BASE_URL/v2/external/shipments?limit=100" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" | jq -r '.page.nextCursor // empty')
+
+while [ -n "$CURSOR" ]; do
+  PAGE=$(curl -s "$BASE_URL/v2/external/shipments?limit=100&cursor=$CURSOR" \
+    -H "Authorization: Bearer $ACCESS_TOKEN")
+  CURSOR=$(echo "$PAGE" | jq -r '.page.nextCursor // empty')
+done
+```
+
+<Warning>
+  A cursor is bound to the tenant, parent resource, filter, and sort of the query that produced it. Presenting it to a different query is rejected with `400 INVALID_CURSOR`. To change a filter, start a new first page.
+</Warning>
+
+## Retrieve one
+
+```bash
+curl "$BASE_URL/v2/external/shipments/$SHIPMENT_ID" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+An unknown shipment, or one outside your company's tenancy, is rejected rather than returned. See [Errors](/errors) for how to tell the cases apart from the machine `code`.

@@ -1,0 +1,88 @@
+---
+title: "Errors"
+description: "RFC 9457 problem details, stable machine codes, and what to retry."
+---
+
+Every error is `application/problem+json`, following [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html) with a few stable DropHub extensions.
+
+```json
+{
+  "type": "https://api.drop-hub.com/problems/access-denied",
+  "title": "Access denied",
+  "status": 403,
+  "detail": "Access to this resource is denied.",
+  "instance": "/v2/external/shipments/018f2d8a-1f00-7000-8000-000000000206",
+  "code": "ACCESS_DENIED",
+  "timestamp": "2026-08-22T18:30:00Z",
+  "correlationId": "018f2d8a-1f00-7000-8000-000000000207",
+  "requestId": "018f2d8a-1f00-7000-8000-000000000208"
+}
+```
+
+## Fields
+
+| Field | Always present | Purpose |
+| --- | --- | --- |
+| `type` | Yes | URI identifying the problem kind |
+| `title` | Yes | Short human-readable summary |
+| `status` | Yes | HTTP status code, repeated in the body |
+| `code` | Yes | **Stable machine code** — branch on this |
+| `timestamp` | Yes | When the failure occurred |
+| `correlationId` | Yes | Correlates the whole logical operation |
+| `requestId` | Yes | Identifies this single request |
+| `detail` | No | Human-readable specifics |
+| `instance` | No | The path that failed |
+| `traceId` | No | Distributed trace identifier |
+| `violations` | No | Field-level validation failures |
+
+<Warning>
+  Branch on `code`, never on `title` or `detail`. Those are human-readable, may be localized via `Accept-Language`, and may be reworded. `code` is the contract.
+</Warning>
+
+## Validation failures
+
+A `422` carries a `violations` array naming each offending field:
+
+```json
+{
+  "status": 422,
+  "code": "VALIDATION_FAILED",
+  "violations": [
+    { "field": "reasonCode", "code": "PATTERN", "message": "must match ^[A-Z][A-Z0-9_]{1,47}$" }
+  ]
+}
+```
+
+## Status codes
+
+| Status | Meaning | Retry? |
+| --- | --- | --- |
+| `400` | Malformed request, or an out-of-range parameter | No — fix the request |
+| `401` | Missing, malformed, or expired token | Yes, once, with a fresh token |
+| `403` | Valid credential, insufficient scope or wrong tenant | No |
+| `404` | No such resource for this credential | No |
+| `405` | Method not supported on this resource | No |
+| `409` | Conflict — state, or an idempotency-key payload mismatch | No — re-read and reconcile |
+| `412` | `If-Match` is stale | Re-read, then retry |
+| `413` | Payload too large | No |
+| `415` | Unsupported media type | No |
+| `422` | Well-formed but semantically invalid | No — fix the request |
+| `428` | `If-Match` required but absent | Retry with the ETag |
+| `429` | Rate limited | Yes — honour `Retry-After` |
+| `503` | A dependency is unavailable | Yes — backoff with jitter |
+
+## Rate limiting
+
+A `429` carries `Retry-After`. Honour it rather than choosing your own delay, and use bounded exponential backoff with jitter for retries beyond the first.
+
+<Tip>
+  The most common source of `429` on `/oauth/token` is requesting a token per API call. Cache the token until shortly before `expires_in` elapses.
+</Tip>
+
+## Reporting a problem
+
+When something needs investigating, quote the `correlationId` and `requestId` along with the timestamp. Those three values locate the exact request in DropHub's logs.
+
+<Note>
+  `correlationId` spans the whole logical operation, including work that continued after your response was returned. `requestId` identifies just the one HTTP request. Both are useful; they answer different questions.
+</Note>

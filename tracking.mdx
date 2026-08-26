@@ -1,0 +1,69 @@
+---
+title: "Tracking"
+description: "Live shipment tracking, and public tracking links for recipients."
+---
+
+## Read live tracking
+
+```bash
+curl "$BASE_URL/v2/external/shipments/$SHIPMENT_ID/tracking" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+The response carries the shipment's `lifecycleState`, a `locationStatus`, an optional `driverLocation`, and a `recommendedRefreshSeconds`.
+
+### Poll at the interval the server asks for
+
+`recommendedRefreshSeconds` is between 5 and 60 and reflects what is actually knowable right now — a shipment waiting for a driver has nothing to report as often as one in motion.
+
+<Tip>
+  Honour `recommendedRefreshSeconds` instead of choosing your own interval. Polling faster does not produce fresher data, and webhooks are the better mechanism for state changes.
+</Tip>
+
+### Location status
+
+`driverLocation` is `null` unless a location is genuinely available. `locationStatus` says why:
+
+| Status | Meaning |
+| --- | --- |
+| `NOT_ASSIGNED` | No driver is assigned yet |
+| `WAITING_FOR_DRIVER_ACCEPTANCE` | Offered, not yet accepted |
+| `LOCATION_UNAVAILABLE` | A driver is assigned but no location is available |
+| `AVAILABLE` | A current location is available |
+| `STALE` | A location is available but older than the freshness budget |
+| `TERMINAL_NO_LIVE_LOCATION` | The shipment reached a terminal state |
+
+When a location is present it carries `recordedAt`, `ageSeconds`, an optional `accuracyMetres`, and a `stale` flag.
+
+<Warning>
+  Never present a `STALE` location as the driver's current position. The `stale` flag and `ageSeconds` exist so your UI can say "last seen 4 minutes ago" rather than implying live movement.
+</Warning>
+
+## Public tracking links
+
+A tracking link lets a recipient follow a shipment without credentials.
+
+```bash
+curl -X POST "$BASE_URL/v2/external/shipments/$SHIPMENT_ID/tracking-links" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"expiresIn":"PT24H"}'
+```
+
+`expiresIn` is an ISO 8601 duration and defaults to `PT24H`. Choose the shortest window that covers the delivery.
+
+### Revoke a link
+
+Revocation is a conditional request — it requires the `If-Match` ETag of the link.
+
+```bash
+curl -X DELETE "$BASE_URL/v2/external/shipments/$SHIPMENT_ID/tracking-links/$LINK_ID" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "If-Match: \"$VERSION\""
+```
+
+Omitting `If-Match` is rejected with `428 Precondition Required`; a stale one with `412`. See [Idempotency and ETags](/idempotency-and-etags).
+
+<Note>
+  A public link exposes shipment progress to anyone holding the URL. Revoke it as soon as the delivery completes if the link's natural expiry is longer than you need.
+</Note>

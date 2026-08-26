@@ -1,0 +1,52 @@
+---
+title: "DropHub External API"
+sidebarTitle: "Overview"
+description: "Create shipments, follow them to the door, and receive signed events — from your own systems."
+---
+
+The External API is the machine-to-machine surface of DropHub. A merchant system authenticates as an OAuth client, quotes and creates shipments, follows them through their lifecycle, and receives signed webhook events as they happen.
+
+<CardGroup cols={2}>
+  <Card title="Sandbox quickstart" icon="rocket" href="/quickstart">
+    Register a sandbox merchant and reach a shipment-ready state.
+  </Card>
+
+  <Card title="Authentication" icon="key" href="/authentication">
+    Client credentials, scopes, and token lifecycle.
+  </Card>
+
+  <Card title="Shipments" icon="box" href="/shipments">
+    Quote, create, list, and retrieve shipments.
+  </Card>
+
+  <Card title="Webhooks" icon="webhook" href="/webhooks">
+    Subscribe to events and verify their signatures.
+  </Card>
+</CardGroup>
+
+## What the surface covers
+
+Every operation below lives under `/v2/external` and is authorised with an OAuth 2.0 client-credentials token.
+
+| Area | What you can do |
+| --- | --- |
+| Profile and locations | Read your merchant profile, branches, and pickup locations |
+| Pricing | Estimate a shipment price before committing to it |
+| Shipments | Create, list, retrieve, and cancel shipments |
+| Tracking | Read live tracking, and issue or revoke public tracking links |
+| Webhooks | Manage endpoints, inspect deliveries, and replay them |
+| Sandbox | Bootstrap, reset, and steer sandbox fixtures |
+
+## Conventions
+
+<CardGroup cols={2}>
+  <Card title="Idempotency and ETags" icon="fingerprint" href="/idempotency-and-etags">
+    Safe retries on writes, and optimistic concurrency on updates.
+  </Card>
+
+  <Card title="Errors" icon="triangle-exclamation" href="/errors">
+    RFC 9457 problem details with stable machine codes.
+  </Card>
+</CardGroup>
+
+Responses are JSON. Errors are `application/problem+json`. Collections are cursor-paginated and bounded. Timestamps are UTC and ISO 8601. Money is an exact decimal with an explicit currency — never a floating-point number.

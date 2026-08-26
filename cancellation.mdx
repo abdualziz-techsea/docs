@@ -1,0 +1,42 @@
+---
+title: "Cancellation"
+description: "Cancel a shipment, and understand when cancellation is refused."
+---
+
+Cancellation is an idempotent write. It requires an `Idempotency-Key` and a machine-readable reason code.
+
+```bash
+curl -X POST "$BASE_URL/v2/external/shipments/$SHIPMENT_ID/cancel" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Idempotency-Key: cancel-ORDER-10231-attempt-1" \
+  -H 'Content-Type: application/json' \
+  -d '{"reasonCode":"CUSTOMER_REQUESTED"}'
+```
+
+## The reason code
+
+`reasonCode` is an uppercase machine code of 2–48 characters matching `^[A-Z][A-Z0-9_]{1,47}$` — for example `CUSTOMER_REQUESTED`. It is a stable value your systems and DropHub's can both reason about, not free text for a human to read.
+
+## When cancellation is refused
+
+<AccordionGroup>
+  <Accordion title="409 — the shipment cannot be cancelled from its current state">
+    A shipment that has already reached a terminal state (`DELIVERED`, `DELIVERY_FAILED`, or `CANCELLED`) cannot be cancelled. Read the shipment back to see where it actually is.
+  </Accordion>
+
+  <Accordion title="422 — the request is well-formed but invalid">
+    Most commonly a `reasonCode` that does not match the required pattern. The `violations` array in the problem response names the offending field.
+  </Accordion>
+
+  <Accordion title="404 — no such shipment for this credential">
+    The shipment does not exist, or it belongs to another company.
+  </Accordion>
+</AccordionGroup>
+
+<Tip>
+  Cancellation racing a state change is normal, not exceptional. Handle `409` by re-reading the shipment and reporting its real state rather than retrying the cancel.
+</Tip>
+
+## Retrying safely
+
+Reuse the **same** `Idempotency-Key` when retrying a cancellation you are unsure completed. An exact replay returns the original outcome instead of attempting a second cancellation. A new key for the same intent is a new request — see [Idempotency and ETags](/idempotency-and-etags).
