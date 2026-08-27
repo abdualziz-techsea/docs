@@ -1,69 +1,92 @@
 ---
 title: "Tracking"
-description: "Live shipment tracking, and public tracking links for recipients."
+description: "Your view of a shipment's progress, and the customer's."
 ---
 
-## Read live tracking
+There are two tracking views. Yours is authenticated and identifies the order. Your customer's is a link with no credentials and no identifiers in it.
+
+## Your view
 
 ```bash
 curl "$BASE_URL/v2/external/shipments/$SHIPMENT_ID/tracking" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-The response carries the shipment's `lifecycleState`, a `locationStatus`, an optional `driverLocation`, and a `recommendedRefreshSeconds`.
+Requires `shipments:read`.
 
-### Poll at the interval the server asks for
+```json
+{
+  "id": "0198f7c0-7f51-7000-8000-000000000001",
+  "reference": "ORDER-1042",
+  "status": "OUT_FOR_DELIVERY",
+  "driverLocation": {
+    "latitude": 24.7601,
+    "longitude": 46.7203,
+    "accuracyMetres": 12,
+    "recordedAt": "2026-08-27T08:41:12Z",
+    "stale": false,
+    "ageSeconds": 8
+  },
+  "locationStatus": "AVAILABLE",
+  "recommendedRefreshSeconds": 15,
+  "history": [
+    { "status": "CREATED",          "at": "2026-08-27T06:00:00Z" },
+    { "status": "ASSIGNED",         "at": "2026-08-27T06:04:31Z" },
+    { "status": "PICKED_UP",        "at": "2026-08-27T07:52:00Z" },
+    { "status": "OUT_FOR_DELIVERY", "at": "2026-08-27T08:10:44Z" }
+  ]
+}
+```
 
-`recommendedRefreshSeconds` is between 5 and 60 and reflects what is actually knowable right now — a shipment waiting for a driver has nothing to report as often as one in motion.
+`history` is the shipment's [public statuses](/shipments#status) in order, each with the instant it was reached.
 
-<Tip>
-  Honour `recommendedRefreshSeconds` instead of choosing your own interval. Polling faster does not produce fresher data, and webhooks are the better mechanism for state changes.
-</Tip>
+## The customer's view
 
-### Location status
+Every shipment gets a tracking URL at creation. You do not create, request, or revoke it — it comes back on the create response as `trackingUrl`, and it is the link to give your buyer.
 
-`driverLocation` is `null` unless a location is genuinely available. `locationStatus` says why:
+```bash
+curl "$BASE_URL/v2/public/tracking/jhJ4hVsHM7APbKpYKg3f7w4m2fC0ZLDm7KqTKi2B1zA"
+```
+
+No `Authorization` header. The 43-character code in the path is the credential, so the link is bearer-like: anyone holding it can see the shipment's progress.
+
+```json
+{
+  "status": "OUT_FOR_DELIVERY",
+  "driverLocation": { "latitude": 24.76, "longitude": 46.72, "recordedAt": "2026-08-27T08:41:12Z", "stale": false, "ageSeconds": 8 },
+  "locationStatus": "AVAILABLE",
+  "recommendedRefreshSeconds": 15,
+  "history": [ { "status": "CREATED", "at": "2026-08-27T06:00:00Z" } ]
+}
+```
+
+<Info>
+  The public view is deliberately thinner: coarse driver position only, and no order reference, shipment id, merchant, recipient, pickup, or destination. Responses are `no-store` and rate limited.
+</Info>
+
+## Location status
+
+`driverLocation` is `null` unless a position is genuinely available. `locationStatus` always says why:
 
 | Status | Meaning |
 | --- | --- |
 | `NOT_ASSIGNED` | No driver is assigned yet |
 | `WAITING_FOR_DRIVER_ACCEPTANCE` | Offered, not yet accepted |
-| `LOCATION_UNAVAILABLE` | A driver is assigned but no location is available |
-| `AVAILABLE` | A current location is available |
-| `STALE` | A location is available but older than the freshness budget |
-| `TERMINAL_NO_LIVE_LOCATION` | The shipment reached a terminal state |
+| `LOCATION_UNAVAILABLE` | A driver is assigned but no position is available |
+| `AVAILABLE` | A current position is available |
+| `STALE` | A position is available but older than the freshness budget |
+| `TERMINAL_NO_LIVE_LOCATION` | The shipment reached a terminal status |
 
-When a location is present it carries `recordedAt`, `ageSeconds`, an optional `accuracyMetres`, and a `stale` flag.
+When a position is present it carries `recordedAt`, `ageSeconds`, a `stale` flag, and — in your view only — an optional `accuracyMetres`.
 
 <Warning>
-  Never present a `STALE` location as the driver's current position. The `stale` flag and `ageSeconds` exist so your UI can say "last seen 4 minutes ago" rather than implying live movement.
+  Never present a `STALE` position as the driver's current location. The `stale` flag and `ageSeconds` exist so your UI can say "last seen 4 minutes ago" rather than implying live movement.
 </Warning>
 
-## Public tracking links
+## Polling
 
-A tracking link lets a recipient follow a shipment without credentials.
+`recommendedRefreshSeconds` is between 5 and 60 and reflects what is actually knowable right now — a shipment waiting for a driver has nothing to report as often as one in motion.
 
-```bash
-curl -X POST "$BASE_URL/v2/external/shipments/$SHIPMENT_ID/tracking-links" \
-  -H "Authorization: Bearer $ACCESS_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"expiresIn":"PT24H"}'
-```
-
-`expiresIn` is an ISO 8601 duration and defaults to `PT24H`. Choose the shortest window that covers the delivery.
-
-### Revoke a link
-
-Revocation is a conditional request — it requires the `If-Match` ETag of the link.
-
-```bash
-curl -X DELETE "$BASE_URL/v2/external/shipments/$SHIPMENT_ID/tracking-links/$LINK_ID" \
-  -H "Authorization: Bearer $ACCESS_TOKEN" \
-  -H "If-Match: \"$VERSION\""
-```
-
-Omitting `If-Match` is rejected with `428 Precondition Required`; a stale one with `412`. See [Idempotency and ETags](/idempotency-and-etags).
-
-<Note>
-  A public link exposes shipment progress to anyone holding the URL. Revoke it as soon as the delivery completes if the link's natural expiry is longer than you need.
-</Note>
+<Tip>
+  Honour `recommendedRefreshSeconds` instead of choosing your own interval. Polling faster does not produce fresher data. For state changes, [webhooks](/webhooks) are the right mechanism; tracking is for showing a live map.
+</Tip>

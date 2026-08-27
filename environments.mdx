@@ -1,6 +1,6 @@
 ---
 title: "Environments"
-description: "Two deployments, two sets of credentials, and the prerequisites for calling either."
+description: "Two deployments, two sets of credentials, one contract."
 ---
 
 DropHub publishes two deployments. They share one contract and share nothing else — data, credentials, and webhook secrets are separate.
@@ -10,40 +10,33 @@ DropHub publishes two deployments. They share one contract and share nothing els
 | Sandbox | `https://api-test.drop-hub.com` | Integration work. Isolated data and credentials. |
 | Production | `https://api.drop-hub.com` | Live traffic. Production credentials only. |
 
-<Info>
-  The v2 External API is currently served on the sandbox host. Build and certify your integration there; confirm production availability with DropHub before cutting traffic over.
-</Info>
-
 <Warning>
   A production credential is never valid against the sandbox, and a sandbox credential is never valid against production. Keep them in separate secret stores so one cannot be reached from the other's configuration.
 </Warning>
 
 ## Prerequisites
 
-Before your first call you need:
+Before your first call you need exactly two things:
 
-- **A verified merchant account.** Registration is an onboarding flow, not an API call you can automate away — see the [sandbox quickstart](/quickstart).
-- **An API credential.** A `client_id` and `client_secret` issued to your merchant company.
-- **A branch code and a pickup location code.** Shipments are created against these, and both are readable from the API once your account exists.
+- **A merchant account on the environment you are calling.**
+- **An API credential for it** — a `client_id` and `client_secret`, issued from the DropHub console.
 
-## Requests
+That is the whole list. There are no branch codes, pickup-location codes, coverage zones, carrier accounts, or price lists to set up first.
 
-Set these on every call.
+## Every request
 
 ```bash
 BASE_URL="https://api-test.drop-hub.com"
 
-curl "$BASE_URL/v2/external/me" \
+curl "$BASE_URL/v2/external/shipments/$SHIPMENT_ID" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Accept: application/json"
 ```
 
+Writes also send `Content-Type: application/json`.
+
 `Accept-Language` is optional and selects a localized representation where one exists. Machine error codes never change with language; only human-readable text does.
 
-## The sandbox is steerable
-
-The sandbox exposes fixture controls that production does not: bootstrap, readiness, reset, and a dispatch hold that parks the next shipment before it is offered to a driver. They exist so an integration test can reach a specific state deliberately rather than by waiting.
-
 <Info>
-  Sandbox fixture endpoints accept either an OAuth client-credentials token or a signed-in browser session. They are the only endpoints in this reference that accept a session cookie.
+  `GET /v2/public/tracking/{code}` is the one endpoint with no `Authorization` header — it is the link your customer opens. Everything under `/v2/external` requires a bearer token.
 </Info>

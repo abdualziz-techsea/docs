@@ -1,97 +1,92 @@
 ---
-title: "Sandbox quickstart"
-description: "Register a fresh sandbox merchant and reach a shipment-ready state."
+title: "Quickstart"
+description: "From client credentials to a tracked shipment in four calls."
 ---
 
-Start with a new email address, a unique ten-digit commercial-registration number, and a fresh device UUID. The sandbox sends the one-time code through its configured non-production delivery channel.
+You need a `client_id` and `client_secret` for your merchant account. They are issued from the DropHub console — a credential cannot mint its successor, so there is no API for creating one.
 
 <Steps>
-  <Step title="Register">
-    Registration documents are mandatory. They are uploaded as raw bytes and stored in the sandbox's isolated object-storage prefix; the storage credential and object key are never disclosed to the registering merchant.
+  <Step title="Get a token">
+    ```bash
+    BASE_URL="https://api-test.drop-hub.com"
+    
+    ACCESS_TOKEN=$(curl -s -X POST "$BASE_URL/oauth/token" \
+      -u "$CLIENT_ID:$CLIENT_SECRET" \
+      -H "Content-Type: application/x-www-form-urlencoded" \
+      -d grant_type=client_credentials | jq -r .access_token)
+    ```
+
+    The token is a short-lived JWT. Cache it and reuse it until shortly before `expires_in` elapses — see [Authentication](/authentication).
+  </Step>
+  <Step title="Create a shipment">
+    An order reference, where to collect, where to deliver, and who receives it. Nothing else is required.
 
     ```bash
-    curl --fail-with-body -X POST "$BASE_URL/v2/merchant-registrations" \
-      -H 'Content-Type: application/json' \
+    curl -s -X POST "$BASE_URL/v2/external/shipments" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" \
+      -H "Content-Type: application/json" \
       -d '{
-            "email": "'"$MERCHANT_EMAIL"'",
-            "storeName": "Sandbox Store",
-            "legalBasis": "COMMERCIAL_ENTITY",
-            "commercialRegistrationNumber": "'"$CR_NUMBER"'",
-            "fullName": "Sandbox Operator",
-            "mobileNumber": "'"$MOBILE"'",
-            "deviceReference": "'"$DEVICE_UUID"'"
-          }' \
-      > registration.json
+            "reference": "ORDER-1042",
+            "pickup":      { "latitude": 24.7136,   "longitude": 46.6753 },
+            "destination": { "latitude": 24.774265, "longitude": 46.738586 },
+            "recipient":   { "name": "Noura", "mobile": "0551234567" }
+          }' > shipment.json
     
-    REGISTRATION_ID=$(jq -r .registrationId registration.json)
-    UPLOAD_CAPABILITY=$(jq -r .uploadCapability registration.json)
+    SHIPMENT_ID=$(jq -r .id shipment.json)
     ```
 
-    `mobileNumber` is the Saudi mobile without the country code, so it starts with `5` and is nine digits. `deviceReference` is a UUID your client generates.
+    `201` means created. `200` means DropHub already had this order and you are seeing the original shipment — your `reference` is the idempotency key.
 
-    For a `FREELANCER`, omit `commercialRegistrationNumber` entirely — it is forbidden for that legal basis — and upload `FREELANCE_CERTIFICATE` in place of `COMMERCIAL_REGISTRATION`.
-
-    The response carries a short-lived upload capability. It authorises the document uploads in the next step and nothing else.
-  </Step>
-  <Step title="Upload the documents">
-    Uploads accept `application/pdf`, `image/jpeg`, or `image/png`, up to 1 MiB each. Every merchant uploads `NATIONAL_ADDRESS`; a commercial entity also uploads `COMMERCIAL_REGISTRATION`.
-
-    ```bash
-    curl --fail-with-body -X PUT \
-      "$BASE_URL/v2/account-registrations/$REGISTRATION_ID/documents/COMMERCIAL_REGISTRATION" \
-      -H "Registration-Upload-Capability: $UPLOAD_CAPABILITY" \
-      -H "X-Document-Filename: evidence.png" \
-      -H 'Content-Type: image/png' \
-      --data-binary @evidence.png
+    ```json
+    {
+      "id": "0198f7c0-7f51-7000-8000-000000000001",
+      "reference": "ORDER-1042",
+      "status": "CREATED",
+      "trackingUrl": "/track/jhJ4hVsHM7APbKpYKg3f7w4m2fC0ZLDm7KqTKi2B1zA",
+      "codAmount": null,
+      "createdAt": "2026-08-27T06:00:00Z",
+      "version": 1
+    }
     ```
 
-    A storage-provider failure is reported as `503` with a machine code. It is never converted into a fake successful upload.
+    `trackingUrl` is the customer-facing link. It is minted automatically — send it to your buyer.
   </Step>
-  <Step title="Verify the one-time code">
+  <Step title="Register a webhook">
+    Do this once, not per shipment. The signing secret is returned exactly once.
+
     ```bash
-    curl --fail-with-body -X POST \
-      "$BASE_URL/v2/account-registrations/$REGISTRATION_ID/verifications" \
-      -H 'Content-Type: application/json' \
-      -d '{"otp":"'"$OTP"'"}'
+    curl -s -X POST "$BASE_URL/v2/external/webhook" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"url":"https://merchant.example/webhooks/drophub"}'
     ```
 
-    Verification is what completes registration. Until it succeeds, the registration is a draft.
+    Omitting `events` subscribes you to all seven. Store `signingSecret` immediately — see [Webhooks](/webhooks) for how to verify a delivery.
   </Step>
-  <Step title="Issue an API credential">
-    From the authenticated merchant session, create the credential and store the secret — it is returned exactly once.
+  <Step title="Follow the shipment">
+    Webhooks are the primary mechanism. Poll only when you need a snapshot on demand:
 
     ```bash
-    curl --fail-with-body -X POST "$BASE_URL/v2/merchant-api-credential" \
-      -H "Authorization: Bearer $SESSION_TOKEN"
-    ```
-
-    See [Authentication](/authentication) for rotation and scopes.
-  </Step>
-  <Step title="Bootstrap the sandbox fixtures">
-    ```bash
-    curl --fail-with-body -X POST "$BASE_URL/v2/external/sandbox/bootstrap" \
-      -H "Authorization: Bearer $ACCESS_TOKEN"
-    
-    curl "$BASE_URL/v2/external/sandbox/readiness" \
+    curl -s "$BASE_URL/v2/external/shipments/$SHIPMENT_ID/tracking" \
       -H "Authorization: Bearer $ACCESS_TOKEN"
     ```
 
-    Readiness reports each fixture the sandbox needs before a shipment can be created. Poll it until every item is satisfied rather than sleeping for a fixed interval.
+    See [Tracking](/tracking) for `locationStatus` and the polling interval the server asks you to honour.
   </Step>
 </Steps>
+
+<Tip>
+  Build against the sandbox at `https://api-test.drop-hub.com` and certify there before pointing at production. Credentials are not interchangeable between the two — see [Environments](/environments).
+</Tip>
 
 ## Next
 
 <CardGroup cols={2}>
-  <Card title="Create a shipment" icon="box" href="/shipments">
-    Quote a price, then commit the shipment.
+  <Card title="Shipments" icon="box" href="/shipments">
+    Parcel details, COD, saved pickups, and pickup windows.
   </Card>
 
-  <Card title="Receive events" icon="webhook" href="/webhooks">
-    Subscribe an endpoint and verify signatures.
+  <Card title="Cancellation" icon="ban" href="/cancellation">
+    When a shipment can still be called back.
   </Card>
 </CardGroup>
-
-<Note>
-  A freelancer account registers through the same flow with a different document set. Registration requirements are enforced by the server; read them from the registration response rather than hard-coding a list.
-</Note>

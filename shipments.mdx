@@ -1,126 +1,172 @@
 ---
 title: "Shipments"
-description: "Quote a price, create a shipment, and read it back."
+description: "Create a shipment from an order reference and two map pins, and read it back."
 ---
 
-A shipment is created against a **branch** and a **pickup location**, both identified by codes that belong to your merchant company. Read them from `/v2/external/branches` and `/v2/external/pickup-locations` rather than hard-coding them.
+Creating a shipment takes four fields. Everything else is either optional or derived.
 
-## Estimate a price
-
-Pricing is a separate, side-effect-free call. It commits nothing.
-
-```bash
-curl -X POST "$BASE_URL/v2/external/shipment-price-estimates" \
-  -H "Authorization: Bearer $ACCESS_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{
-        "pickup":   { "latitude": 24.7136,   "longitude": 46.6753 },
-        "delivery": { "latitude": 24.774265, "longitude": 46.738586 },
-        "destinationCityCode": "RUH"
-      }'
-```
-
-<Note>
-  A `503` here means the routing provider is unavailable. It is a transient condition — retry with backoff. It is never reported as a successful estimate with a guessed price.
-</Note>
-
-## Create a shipment
-
-`POST /v2/external/shipments` requires an `Idempotency-Key`. See [Idempotency and ETags](/idempotency-and-etags) for the key's grammar and replay semantics.
+## The minimal request
 
 ```bash
 curl -X POST "$BASE_URL/v2/external/shipments" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
-  -H "Idempotency-Key: merchant-order-20260822-0001" \
-  -H 'Content-Type: application/json' \
+  -H "Content-Type: application/json" \
   -d '{
-        "externalReference": "ORDER-10231",
-        "branchCode": "RUH_MAIN",
-        "pickupLocationCode": "RUH_WAREHOUSE_1",
-        "recipient": { "...": "see the API reference" },
-        "destination": { "...": "see the API reference" },
-        "declaredValue": 250.00,
-        "codAmount": 0,
-        "currency": "SAR",
-        "paymentMethod": "PREPAID",
-        "pickupWindowStart": "2026-08-22T09:00:00Z",
-        "pickupWindowEnd": "2026-08-22T12:00:00Z",
-        "items": [ { "...": "at least one" } ],
-        "requirements": []
+        "reference": "ORDER-1042",
+        "pickup":      { "latitude": 24.7136,   "longitude": 46.6753 },
+        "destination": { "latitude": 24.774265, "longitude": 46.738586 },
+        "recipient":   { "name": "Noura", "mobile": "0551234567" }
       }'
 ```
 
-Every field above is required. A few are worth calling out:
+Requires the `shipments:write` scope.
 
 | Field | Notes |
 | --- | --- |
-| `externalReference` | Your own order identifier, 1–128 characters. Filterable when listing. |
-| `branchCode`, `pickupLocationCode` | Uppercase codes, 2–64 characters. |
-| `declaredValue`, `codAmount` | Exact decimals with a matching `currency`. |
-| `paymentMethod` | `PREPAID` or `COD`. Use `COD` when `codAmount` is non-zero. |
-| `items` | Between 1 and 100 items. |
-| `requirements` | Up to 20 unique uppercase capability codes. Send `[]` when there are none. |
+| `reference` | Your order identifier, 1–128 characters. Also the idempotency key. |
+| `pickup` | Where to collect. A coordinate pin, or a saved pickup code. |
+| `destination` | Where to deliver. A coordinate pin. |
+| `recipient` | `name` (1–120 characters) and `mobile`. |
 
-A `201` means the shipment was created. A `200` means this exact request was already processed and you are seeing the original result — see [idempotency](/idempotency-and-etags).
+<Note>
+  There is no quote call to make first, no branch or pickup-location code to look up, no city or address to supply, no carrier to name, and no service level to choose. Sending more than the four fields above does not get you a better shipment — it gets you a rejected request, because the payload is closed.
+</Note>
 
-## Lifecycle
+## What DropHub derives
 
-A shipment moves through these states:
+From those two coordinates alone, DropHub resolves address and city context, the route and its distance, whether the lane is covered, the price under your commercial terms, the eligible carrier, the service and its defaults, dispatch, the lifecycle starting state, SAR as the currency with prepaid as the payment mode, and the customer tracking URL.
 
-| State | Meaning |
+None of these are inputs, and none are configurable through this API.
+
+## Phone numbers
+
+`mobile` is a Saudi mobile number. Three shapes are accepted:
+
+| You send | DropHub stores |
 | --- | --- |
-| `PENDING_APPROVAL` | Created, awaiting approval |
-| `READY_FOR_DISPATCH` | Approved, waiting to be offered |
-| `OFFERED` | Offered to a driver |
-| `ACCEPTED` | A driver accepted it |
-| `DISPATCH_UNRESOLVED` | No driver could be assigned |
-| `PICKED_UP` | Collected from the pickup location |
-| `OUT_FOR_DELIVERY` | On the way to the recipient |
-| `DELIVERED` | Terminal — delivered |
-| `DELIVERY_FAILED` | Terminal — delivery did not succeed |
-| `CANCELLED` | Terminal — cancelled |
+| `0551234567` | `+966551234567` |
+| `551234567` | `+966551234567` |
+| `+966551234567` | `+966551234567` |
 
-<Tip>
-  Treat state as a value to read, not a sequence to assume. `DISPATCH_UNRESOLVED` and `DELIVERY_FAILED` are ordinary outcomes, and a shipment can be cancelled from several states.
-</Tip>
+Normalization happens on the way in, so you do not need to canonicalize first. Anything that is not one of these three shapes is rejected with `422`.
 
-## List and filter
+## Optional fields
 
-```bash
-curl "$BASE_URL/v2/external/shipments?state=OUT_FOR_DELIVERY&limit=50" \
-  -H "Authorization: Bearer $ACCESS_TOKEN"
+Add these only when the default is wrong for the order.
+
+<AccordionGroup>
+  <Accordion title="Parcel — when it is not one small box">
+    The default parcel is one piece, 1 kg, ambient, described as "Parcel". Override any part of it:
+
+    ```json
+    "parcel": { "description": "Small box", "pieces": 1, "weightKg": 2.4 }
+    ```
+
+    `pieces` is 1–100. `weightKg` is greater than zero. `description` is 1–160 characters.
+  </Accordion>
+
+  <Accordion title="COD — when the driver collects payment">
+    ```json
+    "codAmount": 125.00
+    ```
+
+    An exact decimal in SAR, greater than zero, to two places. **Omit it entirely for prepaid orders** — that is what makes an order prepaid. Sending `0` is not the way to say "no COD"; leaving the field out is.
+  </Accordion>
+
+  <Accordion title="Saved pickup — when you always collect from the same place">
+    If your account has a saved pickup location, use its code instead of a coordinate:
+
+    ```json
+    "pickup": { "savedLocationCode": "MAIN" }
+    ```
+
+    `pickup` is one or the other — a `savedLocationCode`, or a `latitude`/`longitude` pair. Never both.
+  </Accordion>
+
+  <Accordion title="Pickup window — when collection is time-bound">
+    ```json
+    "pickupWindow": { "start": "2026-08-27T09:00:00Z", "end": "2026-08-27T12:00:00Z" }
+    ```
+
+    Both bounds are required together, in UTC. Omit the whole object to let DropHub collect as soon as it can.
+  </Accordion>
+</AccordionGroup>
+
+A request using all of them:
+
+```json
+{
+  "reference": "ORDER-1043",
+  "pickup": { "savedLocationCode": "MAIN" },
+  "destination": { "latitude": 24.774265, "longitude": 46.738586 },
+  "recipient": { "name": "Noura", "mobile": "+966551234567" },
+  "parcel": { "description": "Small box", "pieces": 1, "weightKg": 2.4 },
+  "codAmount": 125.00,
+  "pickupWindow": { "start": "2026-08-27T09:00:00Z", "end": "2026-08-27T12:00:00Z" }
+}
 ```
 
-Supported filters are `state` and `externalReference`.
+## The response
 
-### Pagination
+Deliberately small — it carries what you cannot compute yourself and nothing more.
 
-Collections are cursor-paginated and bounded.
-
-- `limit` defaults to `25` and maxes at `100`. A value outside `1..100` is **rejected with `400`**, never silently clamped.
-- `cursor` is the opaque `page.nextCursor` from the previous response.
-- `page.hasMore` is exactly `nextCursor != null`.
-
-```bash
-CURSOR=$(curl -s "$BASE_URL/v2/external/shipments?limit=100" \
-  -H "Authorization: Bearer $ACCESS_TOKEN" | jq -r '.page.nextCursor // empty')
-
-while [ -n "$CURSOR" ]; do
-  PAGE=$(curl -s "$BASE_URL/v2/external/shipments?limit=100&cursor=$CURSOR" \
-    -H "Authorization: Bearer $ACCESS_TOKEN")
-  CURSOR=$(echo "$PAGE" | jq -r '.page.nextCursor // empty')
-done
+```json
+{
+  "id": "0198f7c0-7f51-7000-8000-000000000001",
+  "reference": "ORDER-1042",
+  "status": "CREATED",
+  "trackingUrl": "/track/jhJ4hVsHM7APbKpYKg3f7w4m2fC0ZLDm7KqTKi2B1zA",
+  "codAmount": null,
+  "createdAt": "2026-08-27T06:00:00Z",
+  "version": 1
+}
 ```
+
+`201` carries a `Location` header and an `ETag`. `trackingUrl` is the customer link, minted automatically — see [Tracking](/tracking).
+
+## Retries are already safe
+
+`reference` is the idempotency key. You do not need to send an `Idempotency-Key` header.
+
+| Situation | Result |
+| --- | --- |
+| Same reference, same request | `200` with the original shipment |
+| Same reference, different request | `409` — pick a new reference |
+| New reference | `201` — a second shipment |
 
 <Warning>
-  A cursor is bound to the tenant, parent resource, filter, and sort of the query that produced it. Presenting it to a different query is rejected with `400 INVALID_CURSOR`. To change a filter, start a new first page.
+  Because `reference` is the key, reusing one order number for a genuinely different shipment is a conflict, not an update. One order number, one shipment.
 </Warning>
 
-## Retrieve one
+The optional `Idempotency-Key` header (16–128 characters) exists for callers who already have a key of their own. An explicit key always wins over the derived one. See [Idempotency and ETags](/idempotency-and-etags).
+
+## Read one back
 
 ```bash
 curl "$BASE_URL/v2/external/shipments/$SHIPMENT_ID" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-An unknown shipment, or one outside your company's tenancy, is rejected rather than returned. See [Errors](/errors) for how to tell the cases apart from the machine `code`.
+Requires `shipments:read`, and returns the same shape as the create response with a current `status` and `version`.
+
+<Note>
+  There is no collection endpoint and no search. Shipments are addressed by the `id` you were handed at creation — store it against your order. For progress, use [webhooks](/webhooks) rather than polling a list.
+</Note>
+
+## Status
+
+Seven public statuses, and no others:
+
+| Status | Meaning |
+| --- | --- |
+| `CREATED` | Accepted; not yet assigned to a driver |
+| `ASSIGNED` | A driver is on it |
+| `PICKED_UP` | Collected from the pickup point |
+| `OUT_FOR_DELIVERY` | On the way to the recipient |
+| `DELIVERED` | Terminal — delivered |
+| `FAILED` | Terminal — delivery did not succeed |
+| `CANCELLED` | Terminal — cancelled |
+
+<Tip>
+  Treat status as a value to read, not a sequence to assume. DropHub's internal dispatch states are collapsed into these seven on the way out, so a shipment may skip what looks like a step, and `FAILED` is an ordinary outcome rather than an error.
+</Tip>

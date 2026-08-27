@@ -2,16 +2,21 @@ openapi: 3.1.0
 info:
   title: DropHub External API
   version: v2
-  description: DropHub API v2 for Merchant, shipping-company, shipment, and OAuth 2.0 integrations.
-  contact:
-    name: DropHub API Governance
-  license:
-    name: Proprietary
+  description: The public machine-to-machine integration surface of DropHub.
 servers:
 - url: https://api-test.drop-hub.com
-  description: Sandbox deployment with isolated data and credentials.
+  description: Sandbox. Isolated data and credentials.
 - url: https://api.drop-hub.com
-  description: Production deployment; production credentials only.
+  description: Production. Production credentials only.
+tags:
+- name: Authentication
+  description: OAuth 2.0 client-credentials token issuance
+- name: External Shipments
+  description: Create, read, and cancel your shipments
+- name: External Tracking
+  description: Partner and customer-safe shipment progress
+- name: External Webhooks
+  description: Your single signed shipment webhook
 paths:
   /oauth/token:
     post:
@@ -76,520 +81,20 @@ paths:
           $ref: '#/components/responses/ValidationFailed'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
-  /v2/merchant-registrations:
-    post:
-      tags:
-      - Authentication
-      security: []
-      operationId: startMerchantRegistration
-      summary: Start merchant self-service registration with an email OTP challenge
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/MerchantRegistrationRequest'
-      responses:
-        '202':
-          description: Neutral acknowledgement; the OTP challenge bound to the pending registration
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RegistrationAcknowledgement'
-        '200':
-          description: Resend cooldown active; the existing pending registration is returned
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RegistrationAcknowledgement'
-        '422':
-          $ref: '#/components/responses/ValidationFailed'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      description: Starts a merchant registration and returns a short-lived opaque upload capability.
-        The capability is valid only for the returned pending registration and is not an account or media
-        credential.
-  /v2/account-registrations/{registrationId}/documents:
-    get:
-      tags:
-      - Authentication
-      security: []
-      operationId: listAccountRegistrationDocuments
-      summary: List private evidence attached to one pending merchant registration
-      parameters:
-      - $ref: '#/components/parameters/MerchantRegistrationId'
-      - $ref: '#/components/parameters/RegistrationUploadCapability'
-      responses:
-        '200':
-          description: Document metadata only; no content or asset URL is exposed
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/RegistrationDocument'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '409':
-          $ref: '#/components/responses/StateConflict'
-        '410':
-          $ref: '#/components/responses/RegistrationCapabilityExpired'
-        '422':
-          $ref: '#/components/responses/ValidationFailed'
-  /v2/account-registrations/{registrationId}/documents/{documentType}:
-    put:
-      tags:
-      - Authentication
-      security: []
-      operationId: putAccountRegistrationDocument
-      summary: Upload or replace one private pending-registration document
-      parameters:
-      - $ref: '#/components/parameters/MerchantRegistrationId'
-      - $ref: '#/components/parameters/RegistrationDocumentType'
-      - $ref: '#/components/parameters/RegistrationUploadCapability'
-      - $ref: '#/components/parameters/RegistrationDocumentFilename'
-      requestBody:
-        required: true
-        content:
-          application/pdf:
-            schema:
-              type: string
-              format: binary
-              maxLength: 1048576
-          image/jpeg:
-            schema:
-              type: string
-              format: binary
-              maxLength: 1048576
-          image/png:
-            schema:
-              type: string
-              format: binary
-              maxLength: 1048576
-      responses:
-        '200':
-          description: Stored document metadata; the content remains private
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RegistrationDocument'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '409':
-          $ref: '#/components/responses/StateConflict'
-        '410':
-          $ref: '#/components/responses/RegistrationCapabilityExpired'
-        '413':
-          $ref: '#/components/responses/RequestBodyTooLarge'
-        '415':
-          $ref: '#/components/responses/UnsupportedMediaType'
-        '422':
-          $ref: '#/components/responses/ValidationFailed'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
-    delete:
-      tags:
-      - Authentication
-      security: []
-      operationId: deleteAccountRegistrationDocument
-      summary: Delete one document from a pending merchant registration
-      parameters:
-      - $ref: '#/components/parameters/MerchantRegistrationId'
-      - $ref: '#/components/parameters/RegistrationDocumentType'
-      - $ref: '#/components/parameters/RegistrationUploadCapability'
-      responses:
-        '204':
-          description: The document is absent
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '409':
-          $ref: '#/components/responses/StateConflict'
-        '410':
-          $ref: '#/components/responses/RegistrationCapabilityExpired'
-        '422':
-          $ref: '#/components/responses/ValidationFailed'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
-  /v2/shipping-company-registrations:
-    post:
-      tags:
-      - Authentication
-      security: []
-      operationId: startShippingCompanyRegistration
-      summary: Start shipping-company self-service registration with an email OTP challenge
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ShippingCompanyRegistrationRequest'
-      responses:
-        '202':
-          description: Neutral acknowledgement; the OTP challenge bound to the pending registration
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RegistrationAcknowledgement'
-        '200':
-          description: Resend cooldown active; the existing pending registration is returned
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RegistrationAcknowledgement'
-        '422':
-          $ref: '#/components/responses/ValidationFailed'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      description: Start shipping-company self-service registration with an email OTP challenge. A shipping
-        company is registered through its own door and recorded in its own table; the two sign-ups do
-        not share a request shape because they do not ask the same questions.
-  /v2/account-registrations/{registrationId}/verifications:
-    post:
-      tags:
-      - Authentication
-      security: []
-      operationId: verifyAccountRegistration
-      summary: Verify the registration OTP and create identity, account and session atomically
-      parameters:
-      - name: registrationId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RegistrationVerificationRequest'
-      responses:
-        '201':
-          description: Account created and one session issued; httpOnly cookies set for browsers
-          headers:
-            Set-Cookie:
-              description: httpOnly session cookies for browser clients
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RegistrationSession'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '409':
-          $ref: '#/components/responses/StateConflict'
-        '422':
-          $ref: '#/components/responses/ValidationFailed'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      description: Verify the registration OTP and create identity, account and session atomically.
-  /v2/merchant-api-credential:
-    get:
-      tags:
-      - Authentication
-      operationId: getMerchantApiCredential
-      x-drophub-permission: integration.api-credential:read-own
-      summary: Read this merchant's own Direct API credential
-      security:
-      - opaqueAccess: []
-      responses:
-        '200':
-          description: The credential as it stands. Never carries a secret.
-          headers:
-            ETag:
-              $ref: '#/components/headers/EntityTag'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MerchantApiCredential'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      description: The merchant is its own API client, so the credential is addressed by the session rather
-        than by a client id. A merchant that has never issued one is answered 404.
-    post:
-      tags:
-      - Authentication
-      operationId: issueMerchantApiCredential
-      x-drophub-permission: integration.api-credential:manage-own
-      summary: Issue this merchant's Direct API credential
-      security:
-      - opaqueAccess: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/MerchantApiCredentialRequest'
-      responses:
-        '201':
-          description: Credential issued. The secret is disclosed here and never again.
-          headers:
-            ETag:
-              $ref: '#/components/headers/EntityTag'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IssuedMerchantApiSecret'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '409':
-          $ref: '#/components/responses/StateConflict'
-        '422':
-          $ref: '#/components/responses/ValidationFailed'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      description: One active credential per merchant. A second call while it is active is a conflict.
-        After revocation this same operation cleanly reissues a new client id and one-time secret.
-    delete:
-      tags:
-      - Authentication
-      operationId: revokeMerchantApiCredential
-      x-drophub-permission: integration.api-credential:manage-own
-      summary: Withdraw this merchant's Direct API credential
-      security:
-      - opaqueAccess: []
-      parameters:
-      - $ref: '#/components/parameters/IfMatch'
-      responses:
-        '204':
-          description: Credential withdrawn. New token issuance and already-issued bearer-token authorization
-            stop immediately.
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-        '412':
-          $ref: '#/components/responses/PreconditionFailed'
-        '428':
-          $ref: '#/components/responses/PreconditionRequired'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      description: Withdraw the credential. Access-policy checks invalidate already-issued bearer tokens
-        immediately.
-  /v2/merchant-api-credential/secret-rotations:
-    post:
-      tags:
-      - Authentication
-      operationId: rotateMerchantApiSecret
-      x-drophub-permission: integration.api-credential:manage-own
-      summary: Replace the secret, keeping the old one until it retires
-      security:
-      - opaqueAccess: []
-      parameters:
-      - $ref: '#/components/parameters/IfMatch'
-      responses:
-        '200':
-          description: New secret disclosed once. The superseded secret keeps working for 24 hours.
-          headers:
-            ETag:
-              $ref: '#/components/headers/EntityTag'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IssuedMerchantApiSecret'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-        '412':
-          $ref: '#/components/responses/PreconditionFailed'
-        '428':
-          $ref: '#/components/responses/PreconditionRequired'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      description: Rotation keeps an overlap window so a merchant can rotate and redeploy without a gap
-        in which its integration is refused.
-  /v2/external/sandbox/bootstrap:
-    post:
-      tags:
-      - Sandbox
-      operationId: bootstrapExternalMerchantSandbox
-      summary: Idempotently provision this merchant's complete sandbox fixture
-      description: Sandbox deployment only. Creates or repairs a tenant-exclusive merchant, internal carrier,
-        coverage, driver, and canonical location fixture. It never accepts hidden identifiers or changes
-        another tenant.
-      security:
-      - webSessionCookie: []
-      - oauthClientCredentials:
-        - shipments:write
-      responses:
-        '200':
-          description: Current readiness after provisioning
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SandboxReadiness'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-  /v2/external/sandbox/readiness:
-    get:
-      tags:
-      - Sandbox
-      operationId: getExternalMerchantSandboxReadiness
-      summary: Read this merchant's sandbox readiness checklist
-      security:
-      - webSessionCookie: []
-      - oauthClientCredentials:
-        - shipments:write
-      responses:
-        '200':
-          description: Tenant-bound readiness and routable fixture coordinates
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SandboxReadiness'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-  /v2/external/sandbox/reset:
-    post:
-      tags:
-      - Sandbox
-      operationId: resetExternalMerchantSandbox
-      summary: Reset only the calling merchant's sandbox integration fixtures
-      description: Explicitly revokes this tenant's public tracking links and webhook endpoints, repairs
-        its fixture prerequisites, increments the generation, and preserves canonical immutable shipment
-        history. Shared/global platform configuration and other tenants are untouched.
-      security:
-      - webSessionCookie: []
-      - oauthClientCredentials:
-        - shipments:write
-      responses:
-        '200':
-          description: Current readiness after reset
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SandboxReadiness'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-        '409':
-          $ref: '#/components/responses/StateConflict'
-  /v2/external/sandbox/dispatch-holds:
-    post:
-      tags:
-      - Sandbox
-      operationId: holdNextExternalMerchantSandboxDispatch
-      summary: Keep the next sandbox shipment before the driver-offer boundary
-      description: Sandbox deployment only. Idempotently arms one tenant-bound hold. The next shipment
-        consumes it atomically and remains PENDING_APPROVAL with no driver offer, allowing the merchant
-        cancellation boundary to be exercised deterministically.
-      security:
-      - webSessionCookie: []
-      - oauthClientCredentials:
-        - shipments:write
-      responses:
-        '200':
-          description: Readiness with nextShipmentDispatchHeld set to true
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SandboxReadiness'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-        '409':
-          $ref: '#/components/responses/StateConflict'
-  /v2/external/shipment-price-estimates:
-    post:
-      tags:
-      - External Price Estimates
-      operationId: calculateExternalShipmentPrice
-      summary: Calculate what this merchant is charged for a delivery
-      description: Calculates authoritative route distance and returns the delivery price agreed with
-        this merchant. DropHub internally verifies an eligible carrier and available driver; merchants
-        never select or receive a carrier identifier. No calculation is persisted.
-      security:
-      - oauthClientCredentials:
-        - shipments:write
-      x-drophub-permission: shipments:write
-      parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ExternalShipmentPriceEstimateRequest'
-      responses:
-        '200':
-          description: Current transient price estimate
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ExternalShipmentPriceEstimate'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-        '422':
-          $ref: '#/components/responses/ValidationFailed'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '503':
-          $ref: '#/components/responses/ProviderUnavailable'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
   /v2/external/shipments:
     post:
       tags:
       - External Shipments
-      operationId: createExternalMerchantShipment
-      summary: Create or replay a canonical Merchant shipment
-      description: Resolves the authoritative route, internally selects an eligible service and driver,
-        and freezes the merchant commercial terms. Carrier identity and scoring are never merchant inputs.
-        `externalReference` is unique per Merchant company.
+      operationId: createExternalShipment
+      summary: Create one shipment from a merchant reference and two location pins
+      description: DropHub derives address and city context, route, coverage, pricing, carrier eligibility,
+        service and dispatch decisions, SAR/payment defaults, lifecycle defaults, and the customer tracking
+        URL. Idempotency-Key is optional because the merchant reference is the default key.
       security:
       - oauthClientCredentials:
         - shipments:write
       x-drophub-permission: shipments:write
       parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
       - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
@@ -597,10 +102,39 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ExternalShipmentRequest'
+            examples:
+              minimal:
+                value:
+                  reference: ORDER-1042
+                  pickup:
+                    latitude: 24.7136
+                    longitude: 46.6753
+                  destination:
+                    latitude: 24.774265
+                    longitude: 46.738586
+                  recipient:
+                    name: Noura
+                    mobile: '0551234567'
+              savedPickupCod:
+                value:
+                  reference: ORDER-1043
+                  pickup:
+                    savedLocationCode: MAIN
+                  destination:
+                    latitude: 24.774265
+                    longitude: 46.738586
+                  recipient:
+                    name: Noura
+                    mobile: '+966551234567'
+                  parcel:
+                    description: Small box
+                    pieces: 1
+                    weightKg: 2.4
+                  codAmount: 125.0
       responses:
-        '200':
-          $ref: '#/components/responses/ExternalShipmentResource'
         '201':
+          $ref: '#/components/responses/ExternalShipmentCreated'
+        '200':
           $ref: '#/components/responses/ExternalShipmentResource'
         '400':
           $ref: '#/components/responses/BadRequest'
@@ -614,58 +148,19 @@ paths:
           $ref: '#/components/responses/ValidationFailed'
         '429':
           $ref: '#/components/responses/RateLimited'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-    get:
-      tags:
-      - External Shipments
-      operationId: listExternalMerchantShipments
-      summary: List or reconcile Merchant shipments
-      security:
-      - oauthClientCredentials:
-        - shipments:read
-      x-drophub-permission: shipments:read
-      parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
-      - $ref: '#/components/parameters/BoundedLimit'
-      - $ref: '#/components/parameters/PageCursor'
-      - name: state
-        in: query
-        schema:
-          $ref: '#/components/schemas/ShipmentState'
-      - name: externalReference
-        in: query
-        schema:
-          type: string
-          minLength: 1
-          maxLength: 128
-      responses:
-        '200':
-          description: Merchant shipment page
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ExternalShipmentPage'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      description: List or reconcile Merchant shipments.
+        '503':
+          $ref: '#/components/responses/ProviderUnavailable'
   /v2/external/shipments/{shipmentId}:
     get:
       tags:
       - External Shipments
-      operationId: getExternalMerchantShipment
+      operationId: getExternalShipment
+      summary: Read one merchant-owned shipment
       security:
       - oauthClientCredentials:
         - shipments:read
       x-drophub-permission: shipments:read
       parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
       - $ref: '#/components/parameters/ShipmentId'
       responses:
         '200':
@@ -676,27 +171,50 @@ paths:
           $ref: '#/components/responses/AccessDenied'
         '404':
           $ref: '#/components/responses/ResourceNotFound'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      summary: Get external merchant shipment
-      description: Get external merchant shipment.
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /v2/external/shipments/{shipmentId}/tracking:
+    get:
+      tags:
+      - External Tracking
+      operationId: getExternalShipmentTracking
+      summary: Read partner-safe shipment progress and available driver location
+      security:
+      - oauthClientCredentials:
+        - shipments:read
+      x-drophub-permission: shipments:read
+      parameters:
+      - $ref: '#/components/parameters/ShipmentId'
+      responses:
+        '200':
+          description: Partner-safe tracking
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalTracking'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '404':
+          $ref: '#/components/responses/ResourceNotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
   /v2/external/shipments/{shipmentId}/cancel:
     post:
       tags:
       - External Shipments
-      operationId: cancelExternalMerchantShipment
-      summary: Cancel an unassigned shipment
-      description: Atomic with driver assignment. Once any driver offer/assignment exists this returns
-        409 SHIPMENT_ALREADY_ASSIGNED.
+      operationId: cancelExternalShipment
+      summary: Cancel before driver assignment
       security:
       - oauthClientCredentials:
         - shipments:write
+      x-drophub-permission: shipments:write
       parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
       - $ref: '#/components/parameters/ShipmentId'
       - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -714,577 +232,193 @@ paths:
           $ref: '#/components/responses/StateConflict'
         '422':
           $ref: '#/components/responses/ValidationFailed'
-  /v2/external/shipments/{shipmentId}/tracking:
-    get:
-      tags:
-      - External Tracking
-      operationId: getExternalShipmentTracking
-      security:
-      - oauthClientCredentials:
-        - shipments:read
-      parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
-      - $ref: '#/components/parameters/ShipmentId'
-      responses:
-        '200':
-          description: Privacy-controlled canonical tracking projection
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ExternalTracking'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-  /v2/external/shipments/{shipmentId}/tracking-links:
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /v2/external/webhook:
     post:
       tags:
-      - External Tracking
-      operationId: createExternalShipmentTrackingLink
+      - External Webhooks
+      operationId: createExternalWebhook
+      summary: Configure the merchant's single shipment webhook
+      description: Returns the HMAC signing secret once. Events default to every partner event.
       security:
       - oauthClientCredentials:
-        - shipments:write
+        - webhooks:manage
+      x-drophub-permission: webhooks:manage
       parameters:
-      - $ref: '#/components/parameters/ShipmentId'
+      - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateTrackingLinkRequest'
+              $ref: '#/components/schemas/ExternalWebhookRequest'
       responses:
         '201':
-          description: One-time opaque public tracking URL
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TrackingLink'
+          $ref: '#/components/responses/ExternalWebhookSecretResource'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '409':
+          $ref: '#/components/responses/StateConflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '503':
+          $ref: '#/components/responses/ProviderUnavailable'
+    get:
+      tags:
+      - External Webhooks
+      operationId: getExternalWebhook
+      summary: Read the merchant's webhook configuration
+      security:
+      - oauthClientCredentials:
+        - webhooks:manage
+      x-drophub-permission: webhooks:manage
+      responses:
+        '200':
+          $ref: '#/components/responses/ExternalWebhookResource'
         '401':
           $ref: '#/components/responses/AuthenticationFailed'
         '403':
           $ref: '#/components/responses/AccessDenied'
         '404':
           $ref: '#/components/responses/ResourceNotFound'
-  /v2/external/shipments/{shipmentId}/tracking-links/{linkId}:
-    delete:
+    patch:
       tags:
-      - External Tracking
-      operationId: revokeExternalShipmentTrackingLink
+      - External Webhooks
+      operationId: updateExternalWebhook
+      summary: Change callback URL, events, or pause state
       security:
       - oauthClientCredentials:
-        - shipments:write
+        - webhooks:manage
+      x-drophub-permission: webhooks:manage
       parameters:
-      - $ref: '#/components/parameters/ShipmentId'
-      - name: linkId
+      - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExternalWebhookPatch'
+      responses:
+        '200':
+          $ref: '#/components/responses/ExternalWebhookResource'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '404':
+          $ref: '#/components/responses/ResourceNotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+    delete:
+      tags:
+      - External Webhooks
+      operationId: deleteExternalWebhook
+      summary: Remove the merchant's webhook configuration
+      security:
+      - oauthClientCredentials:
+        - webhooks:manage
+      x-drophub-permission: webhooks:manage
+      parameters:
+      - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Webhook removed
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '404':
+          $ref: '#/components/responses/ResourceNotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+  /v2/external/webhook/secret-rotations:
+    post:
+      tags:
+      - External Webhooks
+      operationId: rotateExternalWebhookSecret
+      summary: Rotate the HMAC secret with a 24-hour overlap
+      security:
+      - oauthClientCredentials:
+        - webhooks:manage
+      x-drophub-permission: webhooks:manage
+      parameters:
+      - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          $ref: '#/components/responses/ExternalWebhookSecretResource'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '404':
+          $ref: '#/components/responses/ResourceNotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '503':
+          $ref: '#/components/responses/ProviderUnavailable'
+  /v2/public/tracking/{code}:
+    get:
+      tags:
+      - External Tracking
+      operationId: getPublicShipmentTracking
+      summary: Read customer-safe progress through a time-bound bearer link
+      security: []
+      parameters:
+      - name: code
         in: path
         required: true
         schema:
           type: string
-          format: uuid
-      - $ref: '#/components/parameters/IfMatch'
+          pattern: ^[A-Za-z0-9_-]{43}$
       responses:
-        '204':
-          description: Public tracking link revoked
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-        '412':
-          $ref: '#/components/responses/PreconditionFailed'
-        '428':
-          $ref: '#/components/responses/PreconditionRequired'
-  /v2/external/webhook-endpoints:
-    post:
-      tags:
-      - Webhook Endpoints
-      operationId: createMerchantWebhookEndpoint
-      description: Returns the signing secret exactly once. Production destinations must be public HTTPS
-        and pass DNS/IP SSRF validation.
-      security:
-      - oauthClientCredentials:
-        - webhooks:manage
-      x-drophub-permission: webhooks:manage
-      parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/WebhookEndpointRequest'
-      responses:
-        '201':
-          description: Endpoint and one-time secret
+        '200':
+          description: Customer-safe tracking without exact endpoints or identity
           headers:
-            ETag:
-              $ref: '#/components/headers/EntityTag'
-            Location:
+            Cache-Control:
               schema:
                 type: string
-                format: uri-reference
+                const: no-store
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WebhookEndpointSecret'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '409':
-          $ref: '#/components/responses/StateConflict'
-        '422':
-          $ref: '#/components/responses/ValidationFailed'
-        '503':
-          $ref: '#/components/responses/DependencyUnavailable'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      summary: Create merchant webhook endpoint
-    get:
-      tags:
-      - Webhook Endpoints
-      operationId: listMerchantWebhookEndpoints
-      security:
-      - oauthClientCredentials:
-        - webhooks:manage
-      x-drophub-permission: webhooks:manage
-      parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
-      - $ref: '#/components/parameters/BoundedLimit'
-      - $ref: '#/components/parameters/PageCursor'
-      responses:
-        '200':
-          description: Endpoint page; signing secrets are absent
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WebhookEndpointPage'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      summary: List merchant webhook endpoints
-      description: List merchant webhook endpoints.
-  /v2/external/webhook-endpoints/{endpointId}:
-    get:
-      tags:
-      - Webhook Endpoints
-      operationId: getMerchantWebhookEndpoint
-      security:
-      - oauthClientCredentials:
-        - webhooks:manage
-      x-drophub-permission: webhooks:manage
-      parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
-      - $ref: '#/components/parameters/WebhookEndpointId'
-      responses:
-        '200':
-          $ref: '#/components/responses/WebhookEndpointResource'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      summary: Get merchant webhook endpoint
-      description: Get merchant webhook endpoint.
-    patch:
-      tags:
-      - Webhook Endpoints
-      operationId: updateMerchantWebhookEndpoint
-      security:
-      - oauthClientCredentials:
-        - webhooks:manage
-      x-drophub-permission: webhooks:manage
-      parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
-      - $ref: '#/components/parameters/WebhookEndpointId'
-      - $ref: '#/components/parameters/IfMatch'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/WebhookEndpointPatch'
-      responses:
-        '200':
-          $ref: '#/components/responses/WebhookEndpointResource'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-        '412':
-          $ref: '#/components/responses/PreconditionFailed'
-        '422':
-          $ref: '#/components/responses/ValidationFailed'
-        '428':
-          $ref: '#/components/responses/PreconditionRequired'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      summary: Update merchant webhook endpoint
-      description: Update merchant webhook endpoint.
-    delete:
-      tags:
-      - Webhook Endpoints
-      operationId: deleteMerchantWebhookEndpoint
-      security:
-      - oauthClientCredentials:
-        - webhooks:manage
-      x-drophub-permission: webhooks:manage
-      parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
-      - $ref: '#/components/parameters/WebhookEndpointId'
-      - $ref: '#/components/parameters/IfMatch'
-      responses:
-        '204':
-          description: Endpoint deleted
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-        '412':
-          $ref: '#/components/responses/PreconditionFailed'
-        '428':
-          $ref: '#/components/responses/PreconditionRequired'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      summary: Delete merchant webhook endpoint
-      description: Delete merchant webhook endpoint.
-  /v2/external/webhook-endpoints/{endpointId}/rotate-secret:
-    post:
-      tags:
-      - Webhook Endpoints
-      operationId: rotateMerchantWebhookSecret
-      description: Returns the new secret once; the former secret remains verifiable only for the configured
-        bounded overlap.
-      security:
-      - oauthClientCredentials:
-        - webhooks:manage
-      x-drophub-permission: webhooks:manage
-      parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
-      - $ref: '#/components/parameters/WebhookEndpointId'
-      - $ref: '#/components/parameters/IfMatch'
-      responses:
-        '200':
-          description: Endpoint and one-time new secret
-          headers:
-            ETag:
-              $ref: '#/components/headers/EntityTag'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WebhookEndpointSecret'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-        '412':
-          $ref: '#/components/responses/PreconditionFailed'
-        '428':
-          $ref: '#/components/responses/PreconditionRequired'
-        '503':
-          $ref: '#/components/responses/DependencyUnavailable'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      summary: Rotate merchant webhook secret
-  /v2/external/webhook-endpoints/{endpointId}/test:
-    post:
-      tags:
-      - Webhook Endpoints
-      operationId: testMerchantWebhookEndpoint
-      description: Sends a signed connectivity probe using the same hardened HTTP transport; this is not
-        a lifecycle event.
-      security:
-      - oauthClientCredentials:
-        - webhooks:manage
-      x-drophub-permission: webhooks:manage
-      parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
-      - $ref: '#/components/parameters/WebhookEndpointId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required:
-              - eventType
-              properties:
-                eventType:
-                  $ref: '#/components/schemas/WebhookEventType'
-      responses:
-        '200':
-          description: Receiver response status
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                - responseStatus
-                - eventType
-                properties:
-                  responseStatus:
-                    type: integer
-                    minimum: 100
-                    maximum: 599
-                  eventType:
-                    $ref: '#/components/schemas/WebhookEventType'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      summary: Test merchant webhook endpoint
-  /v2/external/webhook-deliveries:
-    get:
-      tags:
-      - Webhook Deliveries
-      operationId: listMerchantWebhookDeliveries
-      description: Delivery is at least once and may be out of order. Deduplicate by event ID and reconcile
-        with sequence and resource version.
-      security:
-      - oauthClientCredentials:
-        - webhooks:manage
-      x-drophub-permission: webhooks:manage
-      parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
-      - $ref: '#/components/parameters/BoundedLimit'
-      - $ref: '#/components/parameters/PageCursor'
-      responses:
-        '200':
-          description: Delivery history page
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WebhookDeliveryPage'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      summary: List merchant webhook deliveries
-  /v2/external/webhook-deliveries/{deliveryId}:
-    get:
-      tags:
-      - Webhook Deliveries
-      operationId: getMerchantWebhookDelivery
-      security:
-      - oauthClientCredentials:
-        - webhooks:manage
-      x-drophub-permission: webhooks:manage
-      parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
-      - $ref: '#/components/parameters/WebhookDeliveryId'
-      responses:
-        '200':
-          description: Delivery and immutable attempts
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WebhookDeliveryDetails'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      summary: Get merchant webhook delivery
-      description: Get merchant webhook delivery.
-  /v2/external/webhook-deliveries/{deliveryId}/replay:
-    post:
-      tags:
-      - Webhook Deliveries
-      operationId: replayMerchantWebhookDelivery
-      description: Creates a new delivery identity while preserving the original event ID, timestamp,
-        and immutable payload.
-      security:
-      - oauthClientCredentials:
-        - webhooks:manage
-      x-drophub-permission: webhooks:manage
-      parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
-      - $ref: '#/components/parameters/WebhookDeliveryId'
-      responses:
-        '202':
-          description: Replay queued
-          headers:
-            ETag:
-              $ref: '#/components/headers/EntityTag'
-            Location:
-              schema:
-                type: string
-                format: uri-reference
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WebhookDelivery'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-        '409':
-          $ref: '#/components/responses/StateConflict'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-      summary: Replay merchant webhook delivery
-  /v2/external/me:
-    get:
-      tags:
-      - External Shipments
-      operationId: getExternalMerchantProfile
-      summary: Get the OAuth client's Merchant profile
-      description: Get the OAuth client's Merchant profile. Results are scoped to the Merchant company
-        bound to the OAuth client.
-      security:
-      - oauthClientCredentials:
-        - shipments:read
-      x-drophub-permission: shipments:read
-      parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ExternalMerchantProfile'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
+                $ref: '#/components/schemas/PublicTracking'
         '404':
           $ref: '#/components/responses/ResourceNotFound'
         '429':
           $ref: '#/components/responses/RateLimited'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-  /v2/external/branches:
-    get:
-      tags:
-      - External Shipments
-      operationId: listExternalMerchantBranches
-      summary: List active and unavailable Merchant branches
-      description: List active and unavailable Merchant branches. Results are scoped to the Merchant company
-        bound by the OAuth client.
-      security:
-      - oauthClientCredentials:
-        - shipments:read
-      x-drophub-permission: shipments:read
-      parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
-      - $ref: '#/components/parameters/BoundedLimit'
-      - $ref: '#/components/parameters/PageCursor'
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ExternalBranchPage'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-  /v2/external/pickup-locations:
-    get:
-      tags:
-      - External Shipments
-      operationId: listExternalMerchantPickupLocations
-      summary: List active and unavailable Merchant pickup locations
-      description: List active and unavailable Merchant pickup locations. Results are scoped to the Merchant
-        company to the OAuth client.
-      security:
-      - oauthClientCredentials:
-        - shipments:read
-      x-drophub-permission: shipments:read
-      parameters:
-      - $ref: '#/components/parameters/AcceptLanguage'
-      - $ref: '#/components/parameters/BoundedLimit'
-      - $ref: '#/components/parameters/PageCursor'
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ExternalPickupLocationPage'
-        '401':
-          $ref: '#/components/responses/AuthenticationFailed'
-        '403':
-          $ref: '#/components/responses/AccessDenied'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
 components:
-  headers:
-    EntityTag:
-      description: Strong numeric entity version for the next state-changing request.
-      schema:
-        type: string
-        pattern: ^"[0-9]+"$
-    WwwAuthenticate:
-      description: Bearer challenge for an unauthenticated or invalid-token request.
-      schema:
-        type: string
-        example: Bearer
+  securitySchemes:
+    oauthClientCredentials:
+      type: oauth2
+      description: OAuth 2.0 client-credentials flow for external machine-to-machine integrations.
+      flows:
+        clientCredentials:
+          tokenUrl: /oauth/token
+          scopes:
+            shipments:read: Read Merchant-owned shipments
+            shipments:write: Create and cancel Merchant-owned shipments
+            webhooks:manage: Configure and rotate the merchant's single signed shipment webhook
   parameters:
-    AcceptLanguage:
-      name: Accept-Language
-      in: header
-      required: false
-      description: Preferred response language when a localized representation is available.
-      schema:
-        type: string
-        maxLength: 64
-        example: en
-    BoundedLimit:
-      name: limit
-      in: query
-      required: false
-      description: Maximum items to return. Default 25, maximum 100. Values outside 1..100 are rejected
-        with 400; they are never clamped.
-      schema:
-        type: integer
-        minimum: 1
-        maximum: 100
-        default: 25
     IdempotencyKey:
       name: Idempotency-Key
       in: header
-      required: true
-      description: Caller-generated key scoped by the operation, Merchant company, and OAuth client; an
-        exact replay returns the original result.
+      required: false
+      description: 'Optional. Retry safety is handled for you: when this header is absent DropHub derives
+        the key from the reference you already send — the order number on a shipment create, the shipment
+        id on a cancel — scoped to your merchant account. Two calls naming the same order are treated
+        as one submission and the second returns the original result. Send your own key only if you want
+        to control the replay window yourself; an explicit key always wins.'
       schema:
         type: string
         minLength: 16
@@ -1298,51 +432,6 @@ components:
       schema:
         type: string
         pattern: ^"[0-9]+"$
-    MerchantRegistrationId:
-      name: registrationId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    PageCursor:
-      name: cursor
-      in: query
-      required: false
-      description: Opaque continuation token from a previous page's page.nextCursor. Bound to the tenant,
-        parent resource, filter and sort of the originating query; a cursor presented to a different query
-        is rejected with 400 INVALID_CURSOR.
-      schema:
-        type: string
-        maxLength: 256
-        pattern: ^[A-Za-z0-9_-]{1,256}$
-    RegistrationDocumentFilename:
-      name: X-Document-Filename
-      in: header
-      required: true
-      description: UTF-8 filename encoded as an RFC 3986 component; it is metadata, never a path.
-      schema:
-        type: string
-        minLength: 1
-        maxLength: 540
-    RegistrationDocumentType:
-      name: documentType
-      in: path
-      required: true
-      schema:
-        type: string
-        enum:
-        - NATIONAL_ADDRESS
-        - COMMERCIAL_REGISTRATION
-        - FREELANCE_CERTIFICATE
-    RegistrationUploadCapability:
-      name: Registration-Upload-Capability
-      in: header
-      required: true
-      description: Short-lived opaque secret scoped to exactly one pending merchant registration.
-      schema:
-        type: string
-        minLength: 32
     ShipmentId:
       name: shipmentId
       in: path
@@ -1350,34 +439,17 @@ components:
       schema:
         type: string
         format: uuid
-    WebhookDeliveryId:
-      name: deliveryId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    WebhookEndpointId:
-      name: endpointId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
   responses:
     AccessDenied:
-      description: 'Access denied without exposing internal policy or resource ownership. The machine
-        code is `ACCESS_DENIED`, except for two refusals that describe the caller''s own session and are
-        therefore safe to name: `ASSURANCE_REQUIRED`, when the caller holds the authority but the session
-        has not proved a second factor, and `REAUTHENTICATION_REQUIRED`, when the session is no longer
-        fresh enough for the operation. Both are answered by proving the session again and retrying —
-        see `POST /v2/company-authentication/assurance-elevations`.'
+      description: The token is valid but the credential lacks the required scope, or the resource belongs
+        to another merchant. The machine code is `ACCESS_DENIED`. Retrying with the same credential will
+        never succeed.
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
     AuthenticationFailed:
-      description: Authentication failed without account, token, or tenant enumeration.
+      description: 'Authentication failed: the bearer token is missing, malformed, or expired.'
       headers:
         WWW-Authenticate:
           $ref: '#/components/headers/WwwAuthenticate'
@@ -1401,15 +473,8 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
-    DependencyUnavailable:
-      description: Required qualified policy or evidence-custody dependency is unavailable; the operation
-        fails closed.
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
-    ExternalShipmentResource:
-      description: Merchant-safe canonical shipment
+    ExternalShipmentCreated:
+      description: Shipment created; a retry of the same request returns 200 instead.
       headers:
         ETag:
           $ref: '#/components/headers/EntityTag'
@@ -1421,6 +486,33 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ExternalShipment'
+    ExternalShipmentResource:
+      description: Minimal partner-safe shipment
+      headers:
+        ETag:
+          $ref: '#/components/headers/EntityTag'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ExternalShipment'
+    ExternalWebhookResource:
+      description: The merchant's single webhook; secret material is absent.
+      headers:
+        ETag:
+          $ref: '#/components/headers/EntityTag'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ExternalWebhook'
+    ExternalWebhookSecretResource:
+      description: Webhook plus the HMAC signing secret disclosed for creation or rotation.
+      headers:
+        ETag:
+          $ref: '#/components/headers/EntityTag'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ExternalWebhookSecret'
     MethodNotAllowed:
       description: The method is not supported for this resource.
       headers:
@@ -1445,7 +537,8 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
     ProviderUnavailable:
-      description: No qualified routing provider is configured; the operation fails closed.
+      description: A DropHub dependency is temporarily unavailable and the operation failed closed rather
+        than guessing. Retry with bounded exponential backoff and jitter.
       content:
         application/problem+json:
           schema:
@@ -1462,26 +555,8 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
-    RegistrationCapabilityExpired:
-      description: The otherwise valid registration-scoped upload capability has expired.
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
-    RequestBodyTooLarge:
-      description: The request body exceeds the endpoint's bounded size.
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
     ResourceNotFound:
       description: Resource not found; existence is hidden across authorization boundaries.
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
-    ServiceUnavailable:
-      description: A required qualified external provider is not configured or available.
       content:
         application/problem+json:
           schema:
@@ -1492,29 +567,14 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
-    UnsupportedMediaType:
-      description: The request media type is not supported for this operation.
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
     ValidationFailed:
       description: The request fails strict syntax or semantic validation.
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
-    WebhookEndpointResource:
-      description: Merchant-owned endpoint; signing secret is absent
-      headers:
-        ETag:
-          $ref: '#/components/headers/EntityTag'
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/WebhookEndpoint'
   schemas:
-    Coordinate:
+    ExternalCoordinate:
       type: object
       additionalProperties: false
       required:
@@ -1525,486 +585,190 @@ components:
           $ref: '#/components/schemas/Latitude'
         longitude:
           $ref: '#/components/schemas/Longitude'
-    CreateTrackingLinkRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        expiresIn:
-          type: string
-          format: duration
-          default: PT24H
-    CurrencyCode:
-      type: string
-      pattern: ^[A-Z]{3}$
-      minLength: 3
-      maxLength: 3
-      x-java-type: java.util.Currency
-      x-postgresql-type: char(3)
-    ExternalBranch:
+    ExternalMapLocation:
       type: object
       additionalProperties: false
       required:
-      - code
-      - name
-      - status
-      - version
-      properties:
-        code:
-          type: string
-        name:
-          type: string
-        status:
-          type: string
-        version:
-          $ref: '#/components/schemas/Version'
-    ExternalBranchPage:
-      type: object
-      additionalProperties: false
-      required:
-      - data
-      - page
-      - links
-      properties:
-        data:
-          type: array
-          items:
-            $ref: '#/components/schemas/ExternalBranch'
-        page:
-          $ref: '#/components/schemas/PageMetadata'
-        links:
-          $ref: '#/components/schemas/PageLinks'
-    ExternalLocation:
-      type: object
-      additionalProperties: false
-      required:
-      - addressLine
-      - cityCode
       - latitude
       - longitude
+      - recordedAt
+      - stale
+      - ageSeconds
       properties:
-        addressLine:
-          type: string
-          minLength: 1
-          maxLength: 240
-        cityCode:
-          type: string
-          pattern: ^[A-Z0-9_-]{2,32}$
         latitude:
-          type: number
-          format: decimal
-          minimum: -90
-          maximum: 90
+          $ref: '#/components/schemas/Latitude'
         longitude:
-          type: number
-          format: decimal
-          minimum: -180
-          maximum: 180
-    ExternalMerchantProfile:
-      type: object
-      additionalProperties: false
-      required:
-      - code
-      - displayName
-      - legalName
-      - status
-      properties:
-        code:
-          type: string
-        displayName:
-          type: string
-        legalName:
-          type: string
-        status:
-          type: string
-          enum:
-          - DRAFT
-          - ACTIVE
-          - SUSPENDED
-          - CLOSED
-    ExternalPickupLocation:
-      type: object
-      additionalProperties: false
-      required:
-      - branchCode
-      - code
-      - name
-      - addressLine
-      - cityCode
-      - latitude
-      - longitude
-      - timezone
-      - status
-      - requirements
-      - version
-      properties:
-        branchCode:
-          type: string
-        code:
-          type: string
-        name:
-          type: string
-        addressLine:
-          type: string
-          minLength: 1
-          maxLength: 240
-        cityCode:
-          type: string
-          pattern: ^[A-Z0-9_-]{2,32}$
-        latitude:
-          type: number
-          format: decimal
-          minimum: -90
-          maximum: 90
-        longitude:
-          type: number
-          format: decimal
-          minimum: -180
-          maximum: 180
-        timezone:
-          type: string
-        status:
-          type: string
-        requirements:
-          type: array
-          items:
-            type: string
-          uniqueItems: true
-        version:
-          $ref: '#/components/schemas/Version'
-    ExternalPickupLocationPage:
-      type: object
-      additionalProperties: false
-      required:
-      - data
-      - page
-      - links
-      properties:
-        data:
-          type: array
-          items:
-            $ref: '#/components/schemas/ExternalPickupLocation'
-        page:
-          $ref: '#/components/schemas/PageMetadata'
-        links:
-          $ref: '#/components/schemas/PageLinks'
-    ExternalRecipient:
-      type: object
-      additionalProperties: false
-      required:
-      - name
-      - phone
-      properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 120
-        phone:
-          type: string
-          pattern: ^(?:\+?966|0)?5[0-9]{8}$
-        alternateContactName:
+          $ref: '#/components/schemas/Longitude'
+        accuracyMetres:
           type:
-          - string
+          - number
           - 'null'
-          maxLength: 120
-        alternateContactPhone:
-          type:
-          - string
-          - 'null'
-          pattern: ^(?:\+?966|0)?5[0-9]{8}$
-    ExternalShipment:
-      type: object
-      additionalProperties: false
-      required:
-      - shipmentId
-      - shipmentNumber
-      - externalReference
-      - state
-      - pickup
-      - destination
-      - recipientName
-      - maskedRecipientPhone
-      - totalWeightKilograms
-      - declaredValue
-      - codAmount
-      - currency
-      - paymentMethod
-      - pickupWindowStart
-      - pickupWindowEnd
-      - items
-      - requirements
-      - createdAt
-      - approvedAt
-      - version
-      properties:
-        shipmentId:
-          $ref: '#/components/schemas/Uuid'
-        shipmentNumber:
-          type: string
-        externalReference:
-          type:
-          - string
-          - 'null'
-          maxLength: 128
-        timelineMedia:
-          type: array
-          maxItems: 10
-          description: Existing READY assets attached only to the resulting shipment.created event.
-          items:
-            $ref: '#/components/schemas/ShipmentTimelineMediaRequest'
-        state:
-          $ref: '#/components/schemas/ShipmentState'
-        recipientName:
-          type: string
-        maskedRecipientPhone:
-          type: string
-          description: Only the final four digits are visible.
-        totalWeightKilograms:
-          type: number
-        declaredValue:
-          type: number
-        codAmount:
-          type: number
-        currency:
-          type: string
-        paymentMethod:
-          type: string
-          enum:
-          - PREPAID
-          - COD
-        pickupWindowStart:
+          minimum: 0
+        recordedAt:
           $ref: '#/components/schemas/InstantUtc'
-        pickupWindowEnd:
-          $ref: '#/components/schemas/InstantUtc'
-        createdAt:
-          $ref: '#/components/schemas/InstantUtc'
-        approvedAt:
-          oneOf:
-          - $ref: '#/components/schemas/InstantUtc'
-          - type: 'null'
-        version:
+        stale:
+          type: boolean
+        ageSeconds:
           type: integer
           format: int64
           minimum: 0
-        destination:
-          $ref: '#/components/schemas/ExternalLocation'
-        pickup:
-          oneOf:
-          - $ref: '#/components/schemas/ExternalLocation'
-          - type: 'null'
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/ShipmentItem'
-        requirements:
-          type: array
-          uniqueItems: true
-          items:
-            type: string
-    ExternalShipmentCancellationRequest:
+    ExternalParcel:
       type: object
       additionalProperties: false
-      required:
-      - reasonCode
-      properties:
-        reasonCode:
-          type: string
-          pattern: ^[A-Z][A-Z0-9_]{1,47}$
-      example:
-        reasonCode: CUSTOMER_REQUESTED
-    ExternalShipmentItemRequest:
-      type: object
-      additionalProperties: false
-      required:
-      - description
-      - quantity
-      - weightKilograms
       properties:
         description:
           type: string
           minLength: 1
           maxLength: 160
-        quantity:
+          default: Parcel
+        pieces:
           type: integer
           minimum: 1
-          maximum: 10000
-        weightKilograms:
+          maximum: 100
+          default: 1
+        weightKg:
           type: number
           exclusiveMinimum: 0
-        lengthCentimetres:
-          type:
-          - number
-          - 'null'
-          exclusiveMinimum: 0
-        widthCentimetres:
-          type:
-          - number
-          - 'null'
-          exclusiveMinimum: 0
-        heightCentimetres:
-          type:
-          - number
-          - 'null'
-          exclusiveMinimum: 0
-    ExternalShipmentPage:
-      type: object
-      required:
-      - data
-      - page
-      - links
-      properties:
-        data:
-          type: array
-          items:
-            $ref: '#/components/schemas/ExternalShipment'
-        page:
-          $ref: '#/components/schemas/PageMetadata'
-        links:
-          $ref: '#/components/schemas/PageLinks'
-    ExternalShipmentPriceEstimate:
+          default: 1
+    ExternalPickup:
+      description: Use either a saved pickup code or a coordinate pin.
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required:
+        - savedLocationCode
+        properties:
+          savedLocationCode:
+            type: string
+            pattern: ^[A-Z0-9][A-Z0-9_-]{1,63}$
+      - $ref: '#/components/schemas/ExternalCoordinate'
+    ExternalPickupWindow:
       type: object
       additionalProperties: false
-      description: What this merchant will be charged for this delivery. DropHub's carrier decision and
-        commercial margin are internal and deliberately absent.
       required:
-      - distanceMetres
-      - price
-      - currency
+      - start
+      - end
       properties:
-        distanceMetres:
-          type: integer
-          format: int64
-          minimum: 1
-        price:
-          type: number
+        start:
+          $ref: '#/components/schemas/InstantUtc'
+        end:
+          $ref: '#/components/schemas/InstantUtc'
+    ExternalRecipient:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - mobile
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        mobile:
+          type: string
+          pattern: ^(?:05|5|\\+9665)[0-9]{8}$
+          description: Saudi mobile; DropHub stores canonical +9665XXXXXXXX.
+    ExternalShipment:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - reference
+      - status
+      - trackingUrl
+      - createdAt
+      - version
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        reference:
+          type: string
+        status:
+          $ref: '#/components/schemas/ExternalShipmentStatus'
+        trackingUrl:
+          type: string
+          format: uri-reference
+        codAmount:
+          type:
+          - number
+          - 'null'
           format: decimal
           minimum: 0
-          multipleOf: 0.01
-          description: The delivery price currently agreed with this merchant.
-        currency:
-          type: string
-          enum:
-          - SAR
-    ExternalShipmentPriceEstimateRequest:
+        createdAt:
+          $ref: '#/components/schemas/InstantUtc'
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+    ExternalShipmentCancellationRequest:
       type: object
       additionalProperties: false
-      required:
-      - pickup
-      - delivery
-      - destinationCityCode
       properties:
-        pickup:
-          $ref: '#/components/schemas/Coordinate'
-        delivery:
-          $ref: '#/components/schemas/Coordinate'
-        destinationCityCode:
+        reason:
           type: string
-          pattern: ^[A-Z0-9_-]{2,32}$
-      example:
-        pickup:
-          latitude: 24.7136
-          longitude: 46.6753
-        delivery:
-          latitude: 24.774265
-          longitude: 46.738586
-        destinationCityCode: RUH
+          pattern: ^[A-Z][A-Z0-9_]{1,47}$
+          default: MERCHANT_REQUESTED
     ExternalShipmentRequest:
       type: object
       additionalProperties: false
       required:
-      - externalReference
-      - branchCode
-      - pickupLocationCode
-      - recipient
+      - reference
+      - pickup
       - destination
-      - declaredValue
-      - codAmount
-      - currency
-      - paymentMethod
-      - pickupWindowStart
-      - pickupWindowEnd
-      - items
-      - requirements
+      - recipient
       properties:
-        externalReference:
+        reference:
           type: string
           minLength: 1
           maxLength: 128
-        branchCode:
-          type: string
-          pattern: ^[A-Z0-9][A-Z0-9_-]{1,63}$
-        pickupLocationCode:
-          type: string
-          pattern: ^[A-Z0-9][A-Z0-9_-]{1,63}$
+          description: Merchant order/reference number and default idempotency key.
+        pickup:
+          $ref: '#/components/schemas/ExternalPickup'
+        destination:
+          $ref: '#/components/schemas/ExternalCoordinate'
         recipient:
           $ref: '#/components/schemas/ExternalRecipient'
-        destination:
-          $ref: '#/components/schemas/ExternalLocation'
-        declaredValue:
-          type: number
-          format: decimal
-          minimum: 0
+        parcel:
+          $ref: '#/components/schemas/ExternalParcel'
         codAmount:
           type: number
           format: decimal
-          minimum: 0
-        currency:
-          $ref: '#/components/schemas/CurrencyCode'
-        paymentMethod:
-          type: string
-          enum:
-          - PREPAID
-          - COD
-        pickupWindowStart:
-          $ref: '#/components/schemas/InstantUtc'
-        pickupWindowEnd:
-          $ref: '#/components/schemas/InstantUtc'
-        items:
-          type: array
-          minItems: 1
-          maxItems: 100
-          items:
-            $ref: '#/components/schemas/ExternalShipmentItemRequest'
-        requirements:
-          type: array
-          maxItems: 20
-          uniqueItems: true
-          items:
-            type: string
-            pattern: ^[A-Z][A-Z0-9_]{1,47}$
+          exclusiveMinimum: 0
+          multipleOf: 0.01
+          description: Omit for prepaid shipments; currency is SAR.
+        pickupWindow:
+          $ref: '#/components/schemas/ExternalPickupWindow'
+    ExternalShipmentStatus:
+      type: string
+      enum:
+      - CREATED
+      - ASSIGNED
+      - PICKED_UP
+      - OUT_FOR_DELIVERY
+      - DELIVERED
+      - FAILED
+      - CANCELLED
     ExternalTracking:
       type: object
       additionalProperties: false
       required:
-      - shipmentId
-      - lifecycleState
+      - id
+      - reference
+      - status
       - locationStatus
       - recommendedRefreshSeconds
+      - history
       properties:
-        shipmentId:
+        id:
           $ref: '#/components/schemas/Uuid'
-        lifecycleState:
-          $ref: '#/components/schemas/ShipmentState'
+        reference:
+          type: string
+        status:
+          $ref: '#/components/schemas/ExternalShipmentStatus'
         driverLocation:
-          type:
-          - object
-          - 'null'
-          properties:
-            latitude:
-              $ref: '#/components/schemas/Latitude'
-            longitude:
-              $ref: '#/components/schemas/Longitude'
-            accuracyMetres:
-              type:
-              - number
-              - 'null'
-              minimum: 0
-            recordedAt:
-              $ref: '#/components/schemas/InstantUtc'
-            stale:
-              type: boolean
-            ageSeconds:
-              type: integer
-              minimum: 0
+          oneOf:
+          - $ref: '#/components/schemas/ExternalMapLocation'
+          - type: 'null'
         locationStatus:
           type: string
           enum:
@@ -2016,37 +780,130 @@ components:
           - TERMINAL_NO_LIVE_LOCATION
         recommendedRefreshSeconds:
           type: integer
+          format: int64
           minimum: 5
           maximum: 60
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExternalTrackingStep'
+    ExternalTrackingStep:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      - at
+      properties:
+        status:
+          $ref: '#/components/schemas/ExternalShipmentStatus'
+        at:
+          $ref: '#/components/schemas/InstantUtc'
+    ExternalWebhook:
+      type: object
+      additionalProperties: false
+      required:
+      - endpointId
+      - url
+      - status
+      - subscribedEventTypes
+      - version
+      - createdAt
+      - updatedAt
+      properties:
+        endpointId:
+          $ref: '#/components/schemas/Uuid'
+        url:
+          type: string
+          format: uri
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - PAUSED
+        subscribedEventTypes:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ExternalWebhookEventType'
+        previousSecretValidUntil:
+          oneOf:
+          - $ref: '#/components/schemas/InstantUtc'
+          - type: 'null'
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+        createdAt:
+          $ref: '#/components/schemas/InstantUtc'
+        updatedAt:
+          $ref: '#/components/schemas/InstantUtc'
+    ExternalWebhookEventType:
+      type: string
+      enum:
+      - shipment.created
+      - shipment.assigned
+      - shipment.picked_up
+      - shipment.out_for_delivery
+      - shipment.delivered
+      - shipment.failed
+      - shipment.cancelled
+    ExternalWebhookPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - PAUSED
+        events:
+          type: array
+          uniqueItems: true
+          maxItems: 7
+          items:
+            $ref: '#/components/schemas/ExternalWebhookEventType'
+    ExternalWebhookRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - url
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+        events:
+          type: array
+          uniqueItems: true
+          maxItems: 7
+          items:
+            $ref: '#/components/schemas/ExternalWebhookEventType'
+          description: Omit to subscribe to every event.
+    ExternalWebhookSecret:
+      type: object
+      additionalProperties: false
+      required:
+      - webhook
+      - signingSecret
+      properties:
+        webhook:
+          $ref: '#/components/schemas/ExternalWebhook'
+        signingSecret:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{43}$
+          writeOnly: true
+          x-sensitive: true
+          description: Base64URL-encoded 32-byte HMAC-SHA256 secret, returned on create or rotation.
     InstantUtc:
       type: string
       format: date-time
       x-java-type: java.time.Instant
       x-postgresql-type: timestamptz(6)
       x-time-semantics: UTC-instant
-    IssuedMerchantApiSecret:
-      description: The one and only disclosure of a secret. What is stored is a peppered digest, so this
-        value cannot be produced again and a lost secret is rotated rather than looked up.
-      type: object
-      additionalProperties: false
-      required:
-      - merchantId
-      - clientId
-      - clientSecret
-      - version
-      properties:
-        merchantId:
-          $ref: '#/components/schemas/Uuid'
-        clientId:
-          type: string
-          maxLength: 64
-        clientSecret:
-          type: string
-          maxLength: 128
-        version:
-          type: integer
-          format: int64
-          minimum: 0
     Latitude:
       type: number
       minimum: -90
@@ -2063,164 +920,6 @@ components:
       x-java-type: java.math.BigDecimal
       x-postgresql-type: numeric(10,6)
       x-unit: decimal-degrees
-    MerchantApiCredential:
-      description: The credential as it stands. Never carries a secret.
-      type: object
-      additionalProperties: false
-      required:
-      - merchantId
-      - clientId
-      - environment
-      - status
-      - scopes
-      - secretCreatedAt
-      - version
-      properties:
-        merchantId:
-          $ref: '#/components/schemas/Uuid'
-        clientId:
-          type: string
-          maxLength: 64
-        environment:
-          type: string
-          enum:
-          - SANDBOX
-          - PRODUCTION
-        purpose:
-          type:
-          - string
-          - 'null'
-          maxLength: 120
-        status:
-          type: string
-          enum:
-          - ACTIVE
-          - SUSPENDED
-          - REVOKED
-        scopes:
-          type: array
-          uniqueItems: true
-          items:
-            type: string
-        secretCreatedAt:
-          type: string
-          format: date-time
-        lastUsedAt:
-          type:
-          - string
-          - 'null'
-          format: date-time
-        version:
-          type: integer
-          format: int64
-          minimum: 0
-    MerchantApiCredentialRequest:
-      type: object
-      additionalProperties: false
-      required:
-      - scopes
-      properties:
-        purpose:
-          type:
-          - string
-          - 'null'
-          maxLength: 120
-        scopes:
-          description: What the merchant grants the credential it issues for itself. A self-issued credential
-            must never out-rank its issuer, so the Direct API surface is all that is on offer.
-          type: array
-          minItems: 1
-          maxItems: 8
-          uniqueItems: true
-          items:
-            type: string
-            enum:
-            - shipments:read
-            - shipments:write
-            - webhooks:manage
-    MerchantRegistrationRequest:
-      type: object
-      additionalProperties: false
-      description: The merchant sign-up form, field for field. A merchant signs no agreement here; the
-        signed agreement belongs to the shipping-company door.
-      required:
-      - email
-      - storeName
-      - legalBasis
-      - fullName
-      - mobileNumber
-      - deviceReference
-      properties:
-        email:
-          type: string
-          maxLength: 254
-        storeName:
-          type: string
-          minLength: 2
-          maxLength: 160
-        legalBasis:
-          type: string
-          enum:
-          - COMMERCIAL_ENTITY
-          - FREELANCER
-        commercialRegistrationNumber:
-          description: Required for COMMERCIAL_ENTITY and forbidden for FREELANCER.
-          type:
-          - string
-          - 'null'
-          pattern: ^[0-9]{10}$
-        fullName:
-          type: string
-          minLength: 2
-          maxLength: 160
-        mobileNumber:
-          description: Saudi mobile as it is typed, without the country code.
-          type: string
-          pattern: ^5[0-9]{8}$
-        deviceReference:
-          type: string
-          format: uuid
-    PageLinks:
-      type: object
-      required:
-      - self
-      additionalProperties: false
-      properties:
-        self:
-          type: string
-          maxLength: 512
-          description: Safe path of the originating query, without secrets or credentials.
-    PageMetadata:
-      type: object
-      required:
-      - limit
-      - hasMore
-      additionalProperties: false
-      properties:
-        limit:
-          type: integer
-          minimum: 1
-          maximum: 100
-          description: The bounded limit the server actually applied.
-        nextCursor:
-          oneOf:
-          - type: string
-            maxLength: 256
-          - type: 'null'
-          description: Continuation token, or null when the result set is exhausted.
-        hasMore:
-          type: boolean
-          description: Always equal to (nextCursor is not null).
-      examples:
-      - limit: 25
-        nextCursor: null
-        hasMore: false
-    PositiveQuantity:
-      type: number
-      exclusiveMinimum: 0
-      multipleOf: 1.0e-06
-      x-java-type: java.math.BigDecimal
-      x-postgresql-type: numeric(19,6)
     Problem:
       type: object
       description: RFC 9457 Problem Details with stable DropHub extensions
@@ -2281,328 +980,43 @@ components:
         timestamp: '2026-08-22T18:30:00Z'
         correlationId: 018f2d8a-1f00-7000-8000-000000000207
         requestId: 018f2d8a-1f00-7000-8000-000000000208
-    RegistrationAcknowledgement:
+    PublicTracking:
       type: object
       additionalProperties: false
       required:
-      - registrationId
-      - challengeId
-      - expiresAt
-      - resendAvailableAt
-      - cooldown
-      - uploadCapability
-      - uploadCapabilityExpiresAt
+      - status
+      - locationStatus
+      - recommendedRefreshSeconds
+      - history
       properties:
-        registrationId:
-          type: string
-          format: uuid
-        challengeId:
-          type: string
-          format: uuid
-        expiresAt:
-          type: string
-          format: date-time
-        resendAvailableAt:
-          type: string
-          format: date-time
-        cooldown:
-          type: boolean
-        uploadCapability:
-          type: string
-          minLength: 32
-          description: Short-lived opaque capability scoped only to this pending registration.
-        uploadCapabilityExpiresAt:
-          type: string
-          format: date-time
-    RegistrationDocument:
-      type: object
-      additionalProperties: false
-      required:
-      - documentType
-      - originalFilename
-      - contentType
-      - byteSize
-      - uploadedAt
-      - updatedAt
-      - version
-      properties:
-        documentType:
+        status:
+          $ref: '#/components/schemas/ExternalShipmentStatus'
+        driverLocation:
+          description: Coarse position only; exact position and accuracy are never public.
+          oneOf:
+          - $ref: '#/components/schemas/ExternalMapLocation'
+          - type: 'null'
+        locationStatus:
           type: string
           enum:
-          - NATIONAL_ADDRESS
-          - COMMERCIAL_REGISTRATION
-          - FREELANCE_CERTIFICATE
-        originalFilename:
-          type: string
-          maxLength: 180
-        contentType:
-          type: string
-          enum:
-          - application/pdf
-          - image/jpeg
-          - image/png
-        byteSize:
-          type: integer
-          minimum: 1
-          maximum: 1048576
-        uploadedAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-        version:
+          - NOT_ASSIGNED
+          - WAITING_FOR_DRIVER_ACCEPTANCE
+          - LOCATION_UNAVAILABLE
+          - AVAILABLE
+          - STALE
+          - TERMINAL_NO_LIVE_LOCATION
+        recommendedRefreshSeconds:
           type: integer
           format: int64
-          minimum: 0
-    RegistrationSession:
-      type: object
-      additionalProperties: false
-      required:
-      - accountType
-      properties:
-        accountType:
-          type: string
-          enum:
-          - MERCHANT
-          - SHIPPING_COMPANY
-    RegistrationVerificationRequest:
-      type: object
-      additionalProperties: false
-      required:
-      - otp
-      properties:
-        otp:
-          type: string
-          pattern: ^[0-9]{4,8}$
-    SandboxFixtureCoordinate:
-      type: object
-      additionalProperties: false
-      required:
-      - latitude
-      - longitude
-      properties:
-        latitude:
-          $ref: '#/components/schemas/Latitude'
-        longitude:
-          $ref: '#/components/schemas/Longitude'
-    SandboxReadiness:
-      type: object
-      additionalProperties: false
-      required:
-      - generation
-      - canCreateShipment
-      - nextShipmentDispatchHeld
-      - branchCode
-      - pickupLocationCode
-      - pickup
-      - delivery
-      - destinationCityCode
-      - sandboxDriverPhone
-      - prerequisites
-      properties:
-        generation:
-          type: integer
-          minimum: 1
-        canCreateShipment:
-          type: boolean
-        nextShipmentDispatchHeld:
-          type: boolean
-          description: True when the next sandbox shipment will remain before any driver offer; consumed
-            atomically by that creation.
-        branchCode:
-          type: string
-          const: SANDBOX_BRANCH
-        pickupLocationCode:
-          type: string
-          const: SANDBOX_PICKUP
-        pickup:
-          $ref: '#/components/schemas/SandboxFixtureCoordinate'
-        delivery:
-          $ref: '#/components/schemas/SandboxFixtureCoordinate'
-        destinationCityCode:
-          type: string
-          const: RUH
-          description: Use this fixture city code in price-estimate and shipment requests.
-        sandboxDriverPhone:
-          type: string
-          pattern: ^05[0-9]{8}$
-          description: Sandbox-only driver OTP identity used to progress the real canonical driver lifecycle.
-        prerequisites:
+          minimum: 5
+          maximum: 60
+        history:
           type: array
           items:
-            $ref: '#/components/schemas/SandboxReadinessItem'
-    SandboxReadinessItem:
-      type: object
-      additionalProperties: false
-      required:
-      - prerequisite
-      - ready
-      properties:
-        prerequisite:
-          type: string
-          enum:
-          - merchant
-          - branch
-          - pickupLocation
-          - coverage
-          - commercialTerms
-          - eligibleCarrier
-          - dispatchableDriver
-          - freshCanonicalLocation
-          - routingCoordinates
-        ready:
-          type: boolean
-    ShipmentItem:
-      type: object
-      additionalProperties: false
-      required:
-      - description
-      - quantity
-      - weightKilograms
-      properties:
-        description:
-          type: string
-          minLength: 1
-          maxLength: 160
-        quantity:
-          type: integer
-          minimum: 1
-          maximum: 10000
-        weightKilograms:
-          $ref: '#/components/schemas/PositiveQuantity'
-        lengthCentimetres:
-          oneOf:
-          - $ref: '#/components/schemas/PositiveQuantity'
-          - type: 'null'
-        widthCentimetres:
-          oneOf:
-          - $ref: '#/components/schemas/PositiveQuantity'
-          - type: 'null'
-        heightCentimetres:
-          oneOf:
-          - $ref: '#/components/schemas/PositiveQuantity'
-          - type: 'null'
-    ShipmentState:
-      type: string
-      enum:
-      - PENDING_APPROVAL
-      - READY_FOR_DISPATCH
-      - OFFERED
-      - ACCEPTED
-      - DISPATCH_UNRESOLVED
-      - PICKED_UP
-      - OUT_FOR_DELIVERY
-      - DELIVERED
-      - DELIVERY_FAILED
-      - CANCELLED
-    ShipmentTimelineMediaRequest:
-      type: object
-      additionalProperties: false
-      required:
-      - mediaAssetId
-      - purpose
-      - sortOrder
-      properties:
-        mediaAssetId:
-          $ref: '#/components/schemas/Uuid'
-        purpose:
-          type: string
-          enum:
-          - SHIPMENT_CREATION_EVIDENCE
-        sortOrder:
-          type: integer
-          minimum: 0
-          maximum: 99
-    ShippingCompanyRegistrationRequest:
-      type: object
-      additionalProperties: false
-      description: The shipping-company sign-up form, field for field.
-      required:
-      - email
-      - tradeName
-      - commercialRegistrationNumber
-      - contactName
-      - mobileNumber
-      - acceptedAgreement
-      - deviceReference
-      properties:
-        email:
-          type: string
-          maxLength: 254
-        tradeName:
-          type: string
-          minLength: 2
-          maxLength: 160
-        commercialRegistrationNumber:
-          type: string
-          pattern: ^[0-9]{10}$
-        transportPermitNumber:
-          description: Recorded when the company already holds a transport permit.
-          type:
-          - string
-          - 'null'
-          maxLength: 32
-        contactName:
-          type: string
-          minLength: 2
-          maxLength: 160
-        jobTitle:
-          type:
-          - string
-          - 'null'
-          maxLength: 120
-        mobileNumber:
-          type: string
-          pattern: ^5[0-9]{8}$
-        acceptedAgreement:
-          type: object
-          additionalProperties: false
-          required:
-          - agreementCode
-          - agreementVersion
-          - agreementContentSha256
-          properties:
-            agreementCode:
-              type: string
-              pattern: ^[A-Z0-9-]{3,40}$
-            agreementVersion:
-              type: string
-              pattern: ^[A-Z0-9-]{4,40}$
-            agreementContentSha256:
-              type: string
-              pattern: ^[0-9a-f]{64}$
-        deviceReference:
-          type: string
-          format: uuid
-    TrackingLink:
-      type: object
-      additionalProperties: false
-      required:
-      - trackingLinkId
-      - url
-      - expiresAt
-      - version
-      properties:
-        trackingLinkId:
-          $ref: '#/components/schemas/Uuid'
-        url:
-          type: string
-          format: uri-reference
-          writeOnly: true
-        expiresAt:
-          $ref: '#/components/schemas/InstantUtc'
-        version:
-          type: integer
-          format: int64
-          minimum: 0
+            $ref: '#/components/schemas/ExternalTrackingStep'
     Uuid:
       type: string
       format: uuid
-    Version:
-      type: integer
-      format: int64
-      minimum: 0
     Violation:
       type: object
       additionalProperties: false
@@ -2620,323 +1034,14 @@ components:
         message:
           type: string
           maxLength: 256
-    WebhookDelivery:
-      type: object
-      additionalProperties: false
-      required:
-      - deliveryId
-      - endpointId
-      - eventId
-      - replayNumber
-      - status
-      - attemptCount
-      - nextAttemptAt
-      - createdAt
-      - updatedAt
-      - version
-      properties:
-        deliveryId:
-          $ref: '#/components/schemas/Uuid'
-        endpointId:
-          $ref: '#/components/schemas/Uuid'
-        eventId:
-          type: string
-          pattern: ^evt_[0-9a-f]{32}$
-        replayNumber:
-          type: integer
-          minimum: 0
-        replayOfDeliveryId:
-          oneOf:
-          - $ref: '#/components/schemas/Uuid'
-          - type: 'null'
-        status:
-          type: string
-          enum:
-          - PENDING
-          - IN_FLIGHT
-          - RETRY_WAIT
-          - DELIVERED
-          - DEAD_LETTER
-        attemptCount:
-          type: integer
-          minimum: 0
-          maximum: 12
-        nextAttemptAt:
-          $ref: '#/components/schemas/InstantUtc'
-        lastFailureCategory:
-          type:
-          - string
-          - 'null'
-        lastHttpStatus:
-          type:
-          - integer
-          - 'null'
-          minimum: 100
-          maximum: 599
-        deliveredAt:
-          oneOf:
-          - $ref: '#/components/schemas/InstantUtc'
-          - type: 'null'
-        deadLetteredAt:
-          oneOf:
-          - $ref: '#/components/schemas/InstantUtc'
-          - type: 'null'
-        createdAt:
-          $ref: '#/components/schemas/InstantUtc'
-        updatedAt:
-          $ref: '#/components/schemas/InstantUtc'
-        version:
-          type: integer
-          format: int64
-          minimum: 0
-      example:
-        deliveryId: 018f2d8a-1f00-7000-8000-000000000209
-        endpointId: 018f2d8a-1f00-7000-8000-00000000020a
-        eventId: evt_018f2d8a1f0070008000000000000205
-        replayNumber: 1
-        replayOfDeliveryId: 018f2d8a-1f00-7000-8000-00000000020b
-        status: PENDING
-        attemptCount: 0
-        nextAttemptAt: '2026-08-22T18:31:00Z'
-        createdAt: '2026-08-22T18:31:00Z'
-        updatedAt: '2026-08-22T18:31:00Z'
-        version: 0
-    WebhookDeliveryAttempt:
-      type: object
-      additionalProperties: false
-      required:
-      - attemptId
-      - attemptNumber
-      - startedAt
-      - completedAt
-      - latencyMillis
-      properties:
-        attemptId:
-          $ref: '#/components/schemas/Uuid'
-        attemptNumber:
-          type: integer
-          minimum: 1
-          maximum: 12
-        startedAt:
-          $ref: '#/components/schemas/InstantUtc'
-        completedAt:
-          $ref: '#/components/schemas/InstantUtc'
-        responseStatus:
-          type:
-          - integer
-          - 'null'
-          minimum: 100
-          maximum: 599
-        responseExcerpt:
-          type:
-          - string
-          - 'null'
-          maxLength: 1024
-        latencyMillis:
-          type: integer
-          format: int64
-          minimum: 0
-        failureCategory:
-          type:
-          - string
-          - 'null'
-        retryAt:
-          oneOf:
-          - $ref: '#/components/schemas/InstantUtc'
-          - type: 'null'
-    WebhookDeliveryDetails:
-      type: object
-      additionalProperties: false
-      required:
-      - delivery
-      - attempts
-      properties:
-        delivery:
-          $ref: '#/components/schemas/WebhookDelivery'
-        attempts:
-          type: array
-          items:
-            $ref: '#/components/schemas/WebhookDeliveryAttempt'
-    WebhookDeliveryPage:
-      type: object
-      required:
-      - data
-      - page
-      - links
-      properties:
-        data:
-          type: array
-          items:
-            $ref: '#/components/schemas/WebhookDelivery'
-        page:
-          $ref: '#/components/schemas/PageMetadata'
-        links:
-          $ref: '#/components/schemas/PageLinks'
-    WebhookEndpoint:
-      type: object
-      additionalProperties: false
-      required:
-      - endpointId
-      - companyId
-      - url
-      - status
-      - subscribedEventTypes
-      - version
-      - createdAt
-      - updatedAt
-      properties:
-        endpointId:
-          $ref: '#/components/schemas/Uuid'
-        companyId:
-          $ref: '#/components/schemas/Uuid'
-        url:
-          type: string
-          format: uri
-        status:
-          type: string
-          enum:
-          - ACTIVE
-          - PAUSED
-        subscribedEventTypes:
-          type: array
-          uniqueItems: true
-          items:
-            $ref: '#/components/schemas/WebhookEventType'
-        previousSecretValidUntil:
-          oneOf:
-          - $ref: '#/components/schemas/InstantUtc'
-          - type: 'null'
-        version:
-          type: integer
-          format: int64
-          minimum: 0
-        createdAt:
-          $ref: '#/components/schemas/InstantUtc'
-        updatedAt:
-          $ref: '#/components/schemas/InstantUtc'
-    WebhookEndpointPage:
-      type: object
-      required:
-      - data
-      - page
-      - links
-      properties:
-        data:
-          type: array
-          items:
-            $ref: '#/components/schemas/WebhookEndpoint'
-        page:
-          $ref: '#/components/schemas/PageMetadata'
-        links:
-          $ref: '#/components/schemas/PageLinks'
-    WebhookEndpointPatch:
-      type: object
-      additionalProperties: false
-      properties:
-        url:
-          type: string
-          format: uri
-          maxLength: 2048
-        status:
-          type: string
-          enum:
-          - ACTIVE
-          - PAUSED
-        subscribedEventTypes:
-          type: array
-          minItems: 1
-          maxItems: 11
-          uniqueItems: true
-          items:
-            $ref: '#/components/schemas/WebhookEventType'
-    WebhookEndpointRequest:
-      type: object
-      additionalProperties: false
-      required:
-      - url
-      - subscribedEventTypes
-      properties:
-        url:
-          type: string
-          format: uri
-          maxLength: 2048
-        subscribedEventTypes:
-          type: array
-          minItems: 1
-          maxItems: 11
-          uniqueItems: true
-          items:
-            $ref: '#/components/schemas/WebhookEventType'
-      example:
-        url: https://merchant.example/webhooks/drophub
-        subscribedEventTypes:
-        - shipment.created
-        - shipment.confirmed
-    WebhookEndpointSecret:
-      type: object
-      additionalProperties: false
-      required:
-      - endpoint
-      - signingSecret
-      properties:
-        endpoint:
-          $ref: '#/components/schemas/WebhookEndpoint'
-        signingSecret:
-          type: string
-          minLength: 43
-          maxLength: 43
-          writeOnly: true
-          x-sensitive: true
-          description: Returned exactly once as unpadded Base64URL. Decode it to 32 raw bytes before using
-            it as the HMAC-SHA256 key.
-    WebhookEventType:
-      type: string
-      enum:
-      - shipment.created
-      - shipment.confirmed
-      - shipment.assigned
-      - driver.accepted
-      - driver.rejected
-      - driver.arrived_at_pickup
-      - shipment.picked_up
-      - driver.arrived_at_dropoff
-      - shipment.delivered
-      - shipment.delivery_failed
-      - shipment.cancelled
-  securitySchemes:
-    opaqueAccess:
-      type: http
-      scheme: bearer
-      bearerFormat: Opaque
-      description: Short-lived random access credential backed by current server-side session state.
-    oauthClientCredentials:
-      type: oauth2
-      description: OAuth 2.0 client-credentials flow for external machine-to-machine integrations.
-      flows:
-        clientCredentials:
-          tokenUrl: /oauth/token
-          scopes:
-            shipments:read: Read Merchant-owned shipments
-            shipments:write: Create and cancel Merchant-owned shipments
-            webhooks:manage: Manage Merchant webhook endpoints, delivery history, and replay
-    webSessionCookie:
-      type: apiKey
-      in: cookie
-      name: dh_at
-      description: Opaque httpOnly browser session cookie issued by the existing human authentication
-        flows. Browsers send it automatically; Swagger UI cannot and does not persist or manufacture it.
-tags:
-- name: Authentication
-  description: Authentication, sessions, the company a principal is, and merchant API credentials
-- name: External Price Estimates
-  description: OAuth-scoped transient route-distance and tariff calculation
-- name: External Shipments
-  description: OAuth-scoped Merchant shipment creation, lookup, and cancellation
-- name: External Tracking
-  description: Merchant-authenticated and privacy-minimized public tracking projections
-- name: Sandbox
-  description: Tenant-bound self-service fixture lifecycle, available only on the isolated sandbox deployment
-- name: Webhook Endpoints
-  description: Merchant webhook subscriptions, lifecycle, and signing-secret rotation
-- name: Webhook Deliveries
-  description: Durable webhook delivery history and replay
+  headers:
+    EntityTag:
+      description: Strong numeric entity version for the next state-changing request.
+      schema:
+        type: string
+        pattern: ^"[0-9]+"$
+    WwwAuthenticate:
+      description: Bearer challenge for an unauthenticated or invalid-token request.
+      schema:
+        type: string
+        example: Bearer

@@ -1,47 +1,82 @@
 ---
 title: "DropHub External API"
 sidebarTitle: "Overview"
-description: "Create shipments, follow them to the door, and receive signed events — from your own systems."
+description: "Send DropHub an order and two map pins. DropHub does the rest and tells you what happened."
 ---
 
-The External API is the machine-to-machine surface of DropHub. A merchant system authenticates as an OAuth client, quotes and creates shipments, follows them through their lifecycle, and receives signed webhook events as they happen.
+The External API is the machine-to-machine surface of DropHub. There are eleven endpoints. A merchant system authenticates as an OAuth client, creates a shipment from an order reference and two coordinates, and receives signed webhook events as the shipment moves.
 
 <CardGroup cols={2}>
-  <Card title="Sandbox quickstart" icon="rocket" href="/quickstart">
-    Register a sandbox merchant and reach a shipment-ready state.
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Token to delivered shipment in four calls.
   </Card>
 
   <Card title="Authentication" icon="key" href="/authentication">
-    Client credentials, scopes, and token lifecycle.
+    Client credentials, three scopes, token lifecycle.
   </Card>
 
   <Card title="Shipments" icon="box" href="/shipments">
-    Quote, create, list, and retrieve shipments.
+    The minimal create request and what comes back.
   </Card>
 
   <Card title="Webhooks" icon="webhook" href="/webhooks">
-    Subscribe to events and verify their signatures.
+    One endpoint, seven events, HMAC-SHA256 signatures.
   </Card>
 </CardGroup>
 
-## What the surface covers
+## What you send
 
-Every operation below lives under `/v2/external` and is authorised with an OAuth 2.0 client-credentials token.
+Everything DropHub needs to move a parcel:
 
-| Area | What you can do |
+```json
+{
+  "reference": "ORDER-1042",
+  "pickup": { "latitude": 24.7136, "longitude": 46.6753 },
+  "destination": { "latitude": 24.774265, "longitude": 46.738586 },
+  "recipient": { "name": "Noura", "mobile": "0551234567" }
+}
+```
+
+## What DropHub derives
+
+You do not model any of the following, and there is no API for configuring them. DropHub resolves each one internally when the shipment is created:
+
+| Derived | Meaning |
 | --- | --- |
-| Profile and locations | Read your merchant profile, branches, and pickup locations |
-| Pricing | Estimate a shipment price before committing to it |
-| Shipments | Create, list, retrieve, and cancel shipments |
-| Tracking | Read live tracking, and issue or revoke public tracking links |
-| Webhooks | Manage endpoints, inspect deliveries, and replay them |
-| Sandbox | Bootstrap, reset, and steer sandbox fixtures |
+| Address and city context | Reverse-geocoded from the two coordinates |
+| Route and distance | Computed between pickup and destination |
+| Coverage | Whether the lane is serviceable, decided at creation |
+| Price | Priced against your account's commercial terms |
+| Carrier | Selected and dispatched without your involvement |
+| Service and defaults | One-piece, 1 kg ambient parcel, SAR, prepaid, unless you say otherwise |
+| Lifecycle state | Advanced by real events from the field |
+| Tracking URL | Minted for you and returned on the create response |
+
+<Note>
+  There is no quote step, no branch or pickup directory to read, no carrier to pick, no coverage to configure, and no tracking link to mint. If you are looking for one of those, it is because DropHub already did it.
+</Note>
+
+## The whole surface
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /oauth/token` | Exchange client credentials for a bearer token |
+| `POST /v2/external/shipments` | Create a shipment |
+| `GET /v2/external/shipments/{id}` | Read a shipment |
+| `GET /v2/external/shipments/{id}/tracking` | Read progress and driver location |
+| `POST /v2/external/shipments/{id}/cancel` | Cancel before a driver is assigned |
+| `POST /v2/external/webhook` | Configure your webhook |
+| `GET /v2/external/webhook` | Read your webhook |
+| `PATCH /v2/external/webhook` | Change URL, events, or pause state |
+| `DELETE /v2/external/webhook` | Remove your webhook |
+| `POST /v2/external/webhook/secret-rotations` | Rotate the signing secret |
+| `GET /v2/public/tracking/{code}` | The customer-facing tracking view, unauthenticated |
 
 ## Conventions
 
 <CardGroup cols={2}>
   <Card title="Idempotency and ETags" icon="fingerprint" href="/idempotency-and-etags">
-    Safe retries on writes, and optimistic concurrency on updates.
+    Your order reference is the retry key. `If-Match` guards webhook changes.
   </Card>
 
   <Card title="Errors" icon="triangle-exclamation" href="/errors">
@@ -49,4 +84,4 @@ Every operation below lives under `/v2/external` and is authorised with an OAuth
   </Card>
 </CardGroup>
 
-Responses are JSON. Errors are `application/problem+json`. Collections are cursor-paginated and bounded. Timestamps are UTC and ISO 8601. Money is an exact decimal with an explicit currency — never a floating-point number.
+Responses are JSON. Errors are `application/problem+json`. Timestamps are UTC and ISO 8601. Money is an exact decimal in SAR — never a floating-point number.

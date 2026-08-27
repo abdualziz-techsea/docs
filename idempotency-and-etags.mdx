@@ -1,61 +1,58 @@
 ---
 title: "Idempotency and ETags"
-description: "Safe retries on creates, and optimistic concurrency on updates."
+description: "Safe retries on writes, and safe concurrent changes to your webhook."
 ---
 
-Two different problems, two different mechanisms. `Idempotency-Key` makes a **retry** safe. `If-Match` makes a **concurrent update** safe.
+Two different problems, two different mechanisms. Idempotency makes a **retry** safe. `If-Match` makes a **concurrent change** safe.
 
-## Idempotency-Key
+## Idempotency
 
-Required on shipment creation and cancellation.
+Retry safety is handled for you. DropHub derives the key from a value you already send:
 
-```bash
--H "Idempotency-Key: merchant-order-20260822-0001"
-```
+| Operation | Derived key |
+| --- | --- |
+| `POST /v2/external/shipments` | Your `reference` — the order number |
+| `POST /v2/external/shipments/{id}/cancel` | The shipment id |
 
-<Info>
-  **Contract note.** The key is **16–128 characters**. Some older material describes a 1–128 range; the OpenAPI contract published here is authoritative, and a key shorter than 16 characters is rejected.
-</Info>
-
-### Scope
-
-A key is scoped by the **operation**, the **merchant company**, and the **OAuth client**. The same key used for a different operation is a different key — you do not need to keep keys globally unique across your whole system, only unique per intent.
+Keys are scoped to your merchant account, so two calls naming the same order are one submission.
 
 ### Replay semantics
 
 | Situation | Result |
 | --- | --- |
-| Same key, same payload | The original result is returned — `200` rather than `201` on create |
-| Same key, different payload | Rejected with `409` |
-| New key, same payload | A new request. A second shipment is created. |
+| Same order, same request | The original result — `200` rather than `201` on create |
+| Same order, different request | `409` |
+| A different order | A new request, and a new shipment |
 
 <Warning>
-  Reusing a key with a changed payload is a conflict, not an update. If you genuinely want to create a different shipment, use a different key.
+  Reusing an order number with a changed payload is a conflict, not an update. If you genuinely want a different shipment, give it a different `reference`.
 </Warning>
 
-### Choosing a key
+### Bringing your own key
 
-Derive it from the business intent that must happen at most once — your order identifier plus the operation, for example. Do not generate a fresh random key on each retry: that is precisely the case idempotency exists to prevent.
+Send `Idempotency-Key` only if you want to control the replay window yourself. An explicit key always wins over the derived one.
 
 ```bash
-IDEMPOTENCY_KEY="create-shipment-$ORDER_ID"
+-H "Idempotency-Key: create-shipment-ORDER-1042"
 ```
+
+The key is **16–128 characters**. Derive it from the business intent that must happen at most once — do not generate a fresh random key on each retry, which is precisely the case idempotency exists to prevent.
 
 ## ETags and If-Match
 
-Mutable resources carry a **strong numeric entity tag**, matching `^"[0-9]+"$` — quotes included. It is the resource's `version` in ETag form.
+Your webhook carries a **strong numeric entity tag** matching `^"[0-9]+"$`, quotes included. It is the endpoint's `version` in ETag form.
 
-Conditional requests are required for:
+A conditional request is required for all three ways of changing it:
 
-- revoking an API credential and rotating its secret
-- updating, deleting, or rotating the secret of a webhook endpoint
-- revoking a tracking link
+- `PATCH /v2/external/webhook`
+- `DELETE /v2/external/webhook`
+- `POST /v2/external/webhook/secret-rotations`
 
 ```bash
-curl -X PATCH "$BASE_URL/v2/external/webhook-endpoints/$ENDPOINT_ID" \
+curl -X PATCH "$BASE_URL/v2/external/webhook" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "If-Match: \"7\"" \
-  -H 'Content-Type: application/json' \
+  -H "Content-Type: application/json" \
   -d '{"status":"PAUSED"}'
 ```
 
@@ -63,8 +60,8 @@ curl -X PATCH "$BASE_URL/v2/external/webhook-endpoints/$ENDPOINT_ID" \
 
 | Status | Meaning | What to do |
 | --- | --- | --- |
-| `428 Precondition Required` | You sent no `If-Match` | Read the resource, then retry with its ETag |
-| `412 Precondition Failed` | Your ETag is stale — someone else changed it | Re-read, reconcile, retry |
+| `428 Precondition Required` | You sent no `If-Match` | Read the webhook, then retry with its ETag |
+| `412 Precondition Failed` | Your ETag is stale — something else changed it | Re-read, reconcile, retry |
 
 <Tip>
   Never work around a `412` by fetching the current ETag and immediately resubmitting the same change. That defeats the check. Re-read, decide whether your change still makes sense against the new state, and only then retry.
@@ -72,4 +69,4 @@ curl -X PATCH "$BASE_URL/v2/external/webhook-endpoints/$ENDPOINT_ID" \
 
 ### Reading the current tag
 
-The ETag comes back on the representation you read, and on the response to a successful state-changing request — so a sequence of updates can use each response's tag for the next call without an extra `GET`.
+The `ETag` comes back on the representation you read **and** on the response to a successful change — so a sequence of updates can use each response's tag for the next call without an extra `GET`.

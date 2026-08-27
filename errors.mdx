@@ -13,11 +13,15 @@ Every error is `application/problem+json`, following [RFC 9457](https://www.rfc-
   "detail": "Access to this resource is denied.",
   "instance": "/v2/external/shipments/018f2d8a-1f00-7000-8000-000000000206",
   "code": "ACCESS_DENIED",
-  "timestamp": "2026-08-22T18:30:00Z",
+  "timestamp": "2026-08-27T06:00:00Z",
   "correlationId": "018f2d8a-1f00-7000-8000-000000000207",
   "requestId": "018f2d8a-1f00-7000-8000-000000000208"
 }
 ```
+
+<Note>
+  `POST /oauth/token` is the exception: it uses OAuth error semantics rather than problem details. See [Authentication](/authentication#token-endpoint-errors).
+</Note>
 
 ## Fields
 
@@ -48,7 +52,7 @@ A `422` carries a `violations` array naming each offending field:
   "status": 422,
   "code": "VALIDATION_FAILED",
   "violations": [
-    { "field": "reasonCode", "code": "PATTERN", "message": "must match ^[A-Z][A-Z0-9_]{1,47}$" }
+    { "field": "recipient.mobile", "code": "PATTERN", "message": "must be a Saudi mobile number" }
   ]
 }
 ```
@@ -57,19 +61,16 @@ A `422` carries a `violations` array naming each offending field:
 
 | Status | Meaning | Retry? |
 | --- | --- | --- |
-| `400` | Malformed request, or an out-of-range parameter | No — fix the request |
+| `400` | Malformed request or path parameter | No — fix the request |
 | `401` | Missing, malformed, or expired token | Yes, once, with a fresh token |
-| `403` | Valid credential, insufficient scope or wrong tenant | No |
+| `403` | Valid token, insufficient scope or another merchant's resource | No |
 | `404` | No such resource for this credential | No |
-| `405` | Method not supported on this resource | No |
-| `409` | Conflict — state, or an idempotency-key payload mismatch | No — re-read and reconcile |
+| `409` | Conflict — the shipment's state, or a reference reused with different content | No — re-read and reconcile |
 | `412` | `If-Match` is stale | Re-read, then retry |
-| `413` | Payload too large | No |
-| `415` | Unsupported media type | No |
 | `422` | Well-formed but semantically invalid | No — fix the request |
 | `428` | `If-Match` required but absent | Retry with the ETag |
 | `429` | Rate limited | Yes — honour `Retry-After` |
-| `503` | A dependency is unavailable | Yes — backoff with jitter |
+| `503` | A DropHub dependency is unavailable | Yes — backoff with jitter |
 
 ## Rate limiting
 

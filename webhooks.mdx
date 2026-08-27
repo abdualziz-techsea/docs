@@ -1,135 +1,190 @@
 ---
 title: "Webhooks"
-description: "Subscribe to shipment events, verify signatures, and inspect deliveries."
+description: "One endpoint, seven events, and how to verify that a delivery came from DropHub."
 ---
 
-Webhooks are how DropHub tells your system that something happened, without you polling for it. Managing them requires the `webhooks:manage` scope.
+Webhooks are how DropHub tells your system that a shipment moved, without you polling for it. Managing them requires the `webhooks:manage` scope.
 
-## Register an endpoint
+<Info>
+  A merchant has **one** webhook. There is no collection of endpoints — the resource is `/v2/external/webhook`, singular, and creating a second one replaces nothing because there is nowhere to put it.
+</Info>
+
+## Register it
 
 ```bash
-curl -X POST "$BASE_URL/v2/external/webhook-endpoints" \
+curl -X POST "$BASE_URL/v2/external/webhook" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{
-        "url": "https://merchant.example/webhooks/drophub",
-        "subscribedEventTypes": ["shipment.created", "shipment.delivered"]
-      }'
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://merchant.example/webhooks/drophub"}'
 ```
 
-The response includes the signing secret. Store it immediately — like the API secret, it is disclosed once and can afterwards only be rotated.
-
-## Event types
-
-| Event | Fires when |
-| --- | --- |
-| `shipment.created` | A shipment is created |
-| `shipment.confirmed` | A shipment is confirmed |
-| `shipment.assigned` | A shipment is assigned for dispatch |
-| `driver.accepted` | A driver accepted the offer |
-| `driver.rejected` | A driver rejected the offer |
-| `driver.arrived_at_pickup` | The driver reached the pickup location |
-| `shipment.picked_up` | The shipment was collected |
-| `driver.arrived_at_dropoff` | The driver reached the destination |
-| `shipment.delivered` | The shipment was delivered |
-| `shipment.delivery_failed` | Delivery did not succeed |
-| `shipment.cancelled` | The shipment was cancelled |
-
-Subscribe to what you act on. An endpoint may subscribe to between 1 and all 11 event types.
-
-## The envelope
-
-Every delivery is a JSON body with a stable envelope:
+Omit `events` to subscribe to all seven. To narrow it, name the ones you act on:
 
 ```json
 {
-  "id": "018f2d8a-1f00-7000-8000-000000000301",
-  "type": "shipment.delivered",
-  "occurredAt": "2026-08-22T18:30:00Z",
-  "sequence": 7,
-  "apiVersion": "2026-08-25",
-  "data": { }
+  "url": "https://merchant.example/webhooks/drophub",
+  "events": ["shipment.delivered", "shipment.failed", "shipment.cancelled"]
 }
 ```
 
-`sequence` orders events for a shipment. `apiVersion` identifies the payload contract.
+The `201` response carries the endpoint and, **exactly once**, the signing secret:
+
+```json
+{
+  "webhook": {
+    "endpointId": "0198f7c0-7f51-7000-8000-0000000000a1",
+    "url": "https://merchant.example/webhooks/drophub",
+    "status": "ACTIVE",
+    "subscribedEventTypes": ["shipment.created", "shipment.assigned", "shipment.picked_up", "shipment.out_for_delivery", "shipment.delivered", "shipment.failed", "shipment.cancelled"],
+    "previousSecretValidUntil": null,
+    "version": 1,
+    "createdAt": "2026-08-27T06:00:00Z",
+    "updatedAt": "2026-08-27T06:00:00Z"
+  },
+  "signingSecret": "0mQ0Xy2h9pKQe3n5T1cVzR7bLd4WsJgYhA6uNfP8kEo"
+}
+```
+
+<Warning>
+  `signingSecret` is disclosed on creation and on rotation, and never again. `GET /v2/external/webhook` returns the endpoint without it. Store it immediately; the recovery path is rotation, not retrieval.
+</Warning>
+
+## Events
+
+| Event | Fires when |
+| --- | --- |
+| `shipment.created` | The shipment was accepted |
+| `shipment.assigned` | A driver is on it |
+| `shipment.picked_up` | Collected from the pickup point |
+| `shipment.out_for_delivery` | On the way to the recipient |
+| `shipment.delivered` | Delivered |
+| `shipment.failed` | Delivery did not succeed |
+| `shipment.cancelled` | Cancelled |
+
+These are the seven [public statuses](/shipments#status) as they happen. DropHub's internal dispatch steps do not appear here.
+
+## The delivery
+
+```json
+{
+  "id": "evt_0198f7c07f5170008000000000000301",
+  "type": "shipment.delivered",
+  "occurredAt": "2026-08-27T09:14:02Z",
+  "sequence": 7,
+  "apiVersion": "2026-08-27",
+  "data": {
+    "shipmentId": "0198f7c0-7f51-7000-8000-000000000001",
+    "version": 7,
+    "status": "DELIVERED"
+  }
+}
+```
+
+`data.reasonCode` is present on `shipment.failed` and `shipment.cancelled`. `sequence` is the shipment's version and orders events for that shipment — ignore one you have already applied.
 
 ## Verifying the signature
 
-Each request carries three headers:
+Every delivery carries three headers:
 
 | Header | Contents |
 | --- | --- |
-| `Webhook-Id` | Unique delivery identifier |
-| `Webhook-Timestamp` | Unix timestamp in seconds |
-| `Webhook-Signature` | `v1=` followed by a lowercase hex HMAC-SHA256 |
+| `Webhook-Id` | Unique delivery identifier — deduplicate on this |
+| `Webhook-Timestamp` | Unix timestamp in **seconds** |
+| `Webhook-Signature` | `v1=` followed by a **base64url**, unpadded HMAC-SHA256 |
 
-The signed message is the delivery id, the timestamp, and the **raw request body**, joined with literal `.` characters:
+The signed message is those two values and the **raw request body**, joined with literal `.` characters:
 
 ```text
 {Webhook-Id}.{Webhook-Timestamp}.{raw body}
 ```
 
 <Warning>
+  Two details break most first attempts:
+
+  1. The HMAC key is the **decoded** secret. `signingSecret` is 32 random bytes shown as base64url — base64url-decode it before using it as a key, do not pass the 43-character string.
+  2. The signature is **base64url**, not hex.
+
   Verify against the raw bytes you received, before any JSON parsing or re-serialisation. Re-encoding the body changes it, and the signature will no longer match.
 </Warning>
 
 ```python
-import hashlib, hmac
+import base64, hashlib, hmac
 
-def verify(secret: bytes, webhook_id: str, timestamp: str, raw_body: bytes, header: str) -> bool:
+def verify(signing_secret: str, webhook_id: str, timestamp: str,
+           raw_body: bytes, header: str) -> bool:
+    key = base64.urlsafe_b64decode(signing_secret + "=" * (-len(signing_secret) % 4))
     message = webhook_id.encode() + b"." + timestamp.encode() + b"." + raw_body
-    expected = "v1=" + hmac.new(secret, message, hashlib.sha256).hexdigest()
+    digest = hmac.new(key, message, hashlib.sha256).digest()
+    expected = "v1=" + base64.urlsafe_b64encode(digest).decode().rstrip("=")
     return hmac.compare_digest(expected, header)
+```
+
+```javascript
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+export function verify(signingSecret, webhookId, timestamp, rawBody, header) {
+  const key = Buffer.from(signingSecret, "base64url");
+  const message = Buffer.concat([
+    Buffer.from(`${webhookId}.${timestamp}.`), rawBody,
+  ]);
+  const expected = "v1=" + createHmac("sha256", key).update(message).digest("base64url");
+  const a = Buffer.from(expected), b = Buffer.from(header);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 ```
 
 <Note>
   Compare in constant time, as above. Also reject deliveries whose `Webhook-Timestamp` is far from your current clock — a valid signature on a very old request is a replay.
 </Note>
 
+## Responding
+
+Return a `2xx` quickly, then do the work. Acknowledge receipt and process asynchronously.
+
+Because retries exist, your handler must be idempotent: deduplicate on `Webhook-Id`, and ignore an event whose `sequence` you have already applied for that shipment.
+
+### Retries
+
+A non-`2xx`, a timeout, or a transport failure is a failed attempt. DropHub retries up to **8 attempts**, starting at **30 seconds** and doubling each time, capped at **1 hour** between attempts. A `Retry-After` on your `429` or `503` is honoured, up to that same 1-hour cap.
+
+<Info>
+  There is no delivery history, replay, or test-send API. If you need to re-drive state after an outage, read the shipments you care about with `GET /v2/external/shipments/{id}` — the current status is always authoritative.
+</Info>
+
+## Changing it
+
+`PATCH`, `DELETE`, and rotation are conditional requests: they require the endpoint's current version as an `If-Match` ETag. Read it from `GET /v2/external/webhook`, or from the `ETag` header of the response that last changed it.
+
+Pause while you deploy, rather than deleting and recreating — deletion loses the secret:
+
+```bash
+curl -X PATCH "$BASE_URL/v2/external/webhook" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "If-Match: \"1\"" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"PAUSED"}'
+```
+
+`PATCH` accepts any of `url`, `status` (`ACTIVE` or `PAUSED`), and `events`.
+
+```bash
+curl -X DELETE "$BASE_URL/v2/external/webhook" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "If-Match: \"2\""
+```
+
+Omitting `If-Match` is rejected with `428`; a stale one with `412`. See [Idempotency and ETags](/idempotency-and-etags).
+
 ## Rotating the secret
 
 ```bash
-curl -X POST "$BASE_URL/v2/external/webhook-endpoints/$ENDPOINT_ID/rotate-secret" \
+curl -X POST "$BASE_URL/v2/external/webhook/secret-rotations" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
-  -H "If-Match: \"$VERSION\""
+  -H "If-Match: \"2\""
 ```
 
-Rotation returns a new secret and sets `previousSecretValidUntil` on the endpoint. Until that moment **both** secrets produce valid signatures, so accept either during the overlap and drop the old one once it passes.
+Rotation returns a new `signingSecret` and sets `previousSecretValidUntil` on the endpoint — **24 hours** ahead. Until that instant both secrets produce valid signatures.
 
-## Responding to a delivery
-
-Return a `2xx` quickly. Do the work afterwards — acknowledge receipt, then process asynchronously. A non-`2xx` or a timeout is treated as a failed attempt and retried.
-
-Because retries exist, your handler must be **idempotent**: deduplicate on `id`, and ignore an event whose `sequence` you have already applied for that shipment.
-
-## Inspecting deliveries
-
-```bash
-curl "$BASE_URL/v2/external/webhook-deliveries?limit=50" \
-  -H "Authorization: Bearer $ACCESS_TOKEN"
-```
-
-Retrieve one with `GET /v2/external/webhook-deliveries/{deliveryId}` to see its attempt history.
-
-### Replay
-
-```bash
-curl -X POST "$BASE_URL/v2/external/webhook-deliveries/$DELIVERY_ID/replay" \
-  -H "Authorization: Bearer $ACCESS_TOKEN"
-```
-
-Replay returns `202` — it queues the delivery rather than performing it inline. A `409` means the delivery is not in a replayable state.
-
-## Testing an endpoint
-
-```bash
-curl -X POST "$BASE_URL/v2/external/webhook-endpoints/$ENDPOINT_ID/test" \
-  -H "Authorization: Bearer $ACCESS_TOKEN"
-```
-
-This sends a synthetic, correctly signed event to the endpoint so you can exercise your verification path before real traffic depends on it.
-
-## Pausing
-
-An endpoint is `ACTIVE` or `PAUSED`. Pause it with a `PATCH` (carrying `If-Match`) while you deploy a change, rather than deleting and recreating it — deletion loses the secret and the delivery history.
+<Tip>
+  Deploy the new secret alongside the old one and accept either during the overlap, then drop the old one once `previousSecretValidUntil` has passed. Rotating and cutting over in one step will drop deliveries that were already in flight.
+</Tip>
