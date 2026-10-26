@@ -12,7 +12,7 @@ curl "$BASE_URL/v2/external/shipments/$SHIPMENT_ID/tracking" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-Requires `shipments:read`.
+Requires `tracking:read`.
 
 ```json
 {
@@ -39,6 +39,8 @@ Requires `shipments:read`.
 ```
 
 `history` is the shipment's [public statuses](/shipments#status) in order, each with the instant it was reached.
+
+When a live route can be calculated, `eta` includes the target (`PICKUP` or `DELIVERY`), estimated arrival time, remaining minutes, distance, and calculation time. It is absent when operational data is unavailable and can change as the trip progresses. A quote's route duration is travel time, not an arrival estimate.
 
 ## The customer's view
 

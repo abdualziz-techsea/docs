@@ -74,13 +74,20 @@ These are the seven [public statuses](/shipments#status) as they happen. DropHub
   "apiVersion": "2026-08-27",
   "data": {
     "shipmentId": "0198f7c0-7f51-7000-8000-000000000001",
-    "version": 7,
-    "status": "DELIVERED"
+    "shipmentVersion": 7,
+    "lifecycleState": "DELIVERED",
+    "merchantCompanyId": "0198f7c0-7f51-7000-8000-0000000000a0",
+    "reference": "ORDER-1042",
+    "deliveryFeeAmount": 18.00,
+    "deliveryFeeCurrency": "SAR",
+    "proofAvailable": true
   }
 }
 ```
 
 `data.reasonCode` is present on `shipment.failed` and `shipment.cancelled`. `sequence` is the shipment's version and orders events for that shipment — ignore one you have already applied.
+
+Each merchant registers its own webhook and signing secret. Several merchants may use one receiver URL; use the verified signing secret and `merchantCompanyId` to identify the source. Evidence content and driver contact details are never included in an event.
 
 ## Verifying the signature
 

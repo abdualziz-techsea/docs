@@ -28,9 +28,7 @@ Requires the `shipments:write` scope.
 | `destination` | Where to deliver. A coordinate pin. |
 | `recipient` | `name` (1–120 characters) and `mobile`. |
 
-<Note>
-  There is no quote call to make first, no branch or pickup-location code to look up, no city or address to supply, no carrier to name, and no service level to choose. Sending more than the four fields above does not get you a better shipment — it gets you a rejected request, because the payload is closed.
-</Note>
+You can request a [price estimate and serviceability check](/availability) before creation. Neither call reserves a shipment or price.
 
 ## What DropHub derives
 
@@ -117,12 +115,16 @@ Deliberately small — it carries what you cannot compute yourself and nothing m
   "status": "CREATED",
   "trackingUrl": "/track/jhJ4hVsHM7APbKpYKg3f7w4m2fC0ZLDm7KqTKi2B1zA",
   "codAmount": null,
+  "deliveryFeeAmount": 18.00,
+  "deliveryFeeCurrency": "SAR",
   "createdAt": "2026-08-27T06:00:00Z",
   "version": 1
 }
 ```
 
 `201` carries a `Location` header and an `ETag`. `trackingUrl` is the customer link, minted automatically — see [Tracking](/tracking).
+
+`deliveryFeeAmount` is the merchant delivery charge frozen on the shipment. `codAmount` is the amount collected from the recipient and is separate from the delivery fee. A current `eta` appears on shipment reads only when live routing can calculate it.
 
 ## Retries are already safe
 
@@ -147,7 +149,11 @@ curl "$BASE_URL/v2/external/shipments/$SHIPMENT_ID" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-Requires `shipments:read`, and returns the same shape as the create response with a current `status` and `version`.
+Requires `shipments:read`, and returns the same shape as the create response with a current `status` and `version`. It can also include `proofAvailable`, `proofType`, `deliveredAt`, `failureReasonCode`, and `cancellationReasonCode`.
+
+## Proof of delivery
+
+Read evidence metadata with `GET /v2/external/shipments/{shipmentId}/proof` using `shipments:read`. The response has pickup and delivery times, proof type, failure reason, and authenticated content paths when evidence exists. Fetch `/proof/pickup/content` or `/proof/delivery/content` with the same bearer token. Content responses are `no-store`; there are no public evidence URLs.
 
 <Note>
   There is no collection endpoint and no search. Shipments are addressed by the `id` you were handed at creation — store it against your order. For progress, use [webhooks](/webhooks) rather than polling a list.

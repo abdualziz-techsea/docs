@@ -81,6 +81,52 @@ paths:
           $ref: '#/components/responses/ValidationFailed'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
+  /v2/external/quotes:
+    post:
+      tags: [External Shipments]
+      operationId: createExternalShipmentQuote
+      summary: Estimate the current merchant delivery price
+      description: An estimate only; shipment creation prices the route again.
+      security:
+      - oauthClientCredentials: [quotes:write]
+      x-drophub-permission: quotes:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExternalQuoteRequest' }
+      responses:
+        '200':
+          description: Current price and route estimate
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExternalQuote' }
+        '401': { $ref: '#/components/responses/AuthenticationFailed' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /v2/external/serviceability:
+    post:
+      tags: [External Shipments]
+      operationId: checkExternalServiceability
+      summary: Check current delivery serviceability
+      description: A point-in-time checkout decision, not a driver reservation.
+      security:
+      - oauthClientCredentials: [quotes:write]
+      x-drophub-permission: quotes:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExternalServiceabilityRequest' }
+      responses:
+        '200':
+          description: Current serviceability decision
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExternalServiceability' }
+        '401': { $ref: '#/components/responses/AuthenticationFailed' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
   /v2/external/shipments:
     post:
       tags:
@@ -181,8 +227,8 @@ paths:
       summary: Read partner-safe shipment progress and available driver location
       security:
       - oauthClientCredentials:
-        - shipments:read
-      x-drophub-permission: shipments:read
+        - tracking:read
+      x-drophub-permission: tracking:read
       parameters:
       - $ref: '#/components/parameters/ShipmentId'
       responses:
@@ -205,7 +251,8 @@ paths:
       tags:
       - External Shipments
       operationId: cancelExternalShipment
-      summary: Cancel before driver assignment
+      summary: Cancel before physical pickup
+      description: Includes accepted driver assignments. After pickup, returns SHIPMENT_RETURN_REQUIRED.
       security:
       - oauthClientCredentials:
         - shipments:write
@@ -234,6 +281,44 @@ paths:
           $ref: '#/components/responses/ValidationFailed'
         '429':
           $ref: '#/components/responses/RateLimited'
+  /v2/external/shipments/{shipmentId}/proof:
+    get:
+      tags: [External Shipments]
+      operationId: getExternalShipmentProof
+      summary: Read protected proof metadata
+      security:
+      - oauthClientCredentials: [shipments:read]
+      x-drophub-permission: shipments:read
+      parameters:
+      - $ref: '#/components/parameters/ShipmentId'
+      responses:
+        '200':
+          description: Available evidence metadata and authenticated content paths
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExternalProof' }
+        '401': { $ref: '#/components/responses/AuthenticationFailed' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotFound' }
+  /v2/external/shipments/{shipmentId}/proof/{stage}/content:
+    get:
+      tags: [External Shipments]
+      operationId: getExternalShipmentProofContent
+      summary: Read one protected proof asset
+      security:
+      - oauthClientCredentials: [shipments:read]
+      x-drophub-permission: shipments:read
+      parameters:
+      - $ref: '#/components/parameters/ShipmentId'
+      - name: stage
+        in: path
+        required: true
+        schema: { type: string, enum: [pickup, delivery] }
+      responses:
+        '200': { description: Evidence bytes with no-store cache control }
+        '401': { $ref: '#/components/responses/AuthenticationFailed' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotFound' }
   /v2/external/webhook:
     post:
       tags:
@@ -408,6 +493,8 @@ components:
           scopes:
             shipments:read: Read Merchant-owned shipments
             shipments:write: Create and cancel Merchant-owned shipments
+            quotes:write: Request price estimates and serviceability checks
+            tracking:read: Read authenticated tracking and live ETA
             webhooks:manage: Configure and rotate the merchant's single signed shipment webhook
   parameters:
     IdempotencyKey:
@@ -653,6 +740,73 @@ components:
           $ref: '#/components/schemas/InstantUtc'
         end:
           $ref: '#/components/schemas/InstantUtc'
+    ExternalQuoteRequest:
+      type: object
+      additionalProperties: false
+      required: [merchantId, destinationLatitude, destinationLongitude]
+      properties:
+        merchantId: { $ref: '#/components/schemas/Uuid' }
+        branchId: { type: [string, 'null'], format: uuid }
+        pickupLocationId: { type: [string, 'null'], format: uuid }
+        pickupLatitude: { type: [number, 'null'], minimum: -90, maximum: 90 }
+        pickupLongitude: { type: [number, 'null'], minimum: -180, maximum: 180 }
+        destinationLatitude: { type: number, minimum: -90, maximum: 90 }
+        destinationLongitude: { type: number, minimum: -180, maximum: 180 }
+    ExternalQuote:
+      type: object
+      additionalProperties: false
+      required: [distanceMetres, durationSeconds, price, routeGeometry, routeGeometryFormat]
+      properties:
+        distanceMetres: { type: integer, format: int64, minimum: 0 }
+        durationSeconds: { type: integer, format: int64, minimum: 0 }
+        price:
+          type: object
+          additionalProperties: false
+          required: [amount, currency]
+          properties:
+            amount: { type: number }
+            currency: { type: string, example: SAR }
+        routeGeometry: { type: string }
+        routeGeometryFormat: { type: string }
+    ExternalServiceabilityRequest:
+      type: object
+      additionalProperties: false
+      required: [pickup, destination]
+      properties:
+        pickup: { $ref: '#/components/schemas/ExternalPickup' }
+        destination: { $ref: '#/components/schemas/ExternalCoordinate' }
+        pickupWindow: { $ref: '#/components/schemas/ExternalPickupWindow' }
+    ExternalServiceability:
+      type: object
+      additionalProperties: false
+      required: [serviceable, evaluatedAt]
+      properties:
+        serviceable: { type: boolean }
+        unavailableReasonCode:
+          type: [string, 'null']
+          enum: [PICKUP_UNAVAILABLE, PICKUP_OUTSIDE_OPERATING_HOURS, OUTSIDE_MERCHANT_COVERAGE, NO_PROVIDER_AVAILABLE, null]
+        evaluatedAt: { $ref: '#/components/schemas/InstantUtc' }
+        coverageZoneVersionId: { type: [string, 'null'], format: uuid }
+    LiveEta:
+      type: object
+      additionalProperties: false
+      required: [target, estimatedArrivalAt, estimatedMinutes, calculatedAt, distanceMetres]
+      properties:
+        target: { type: string, enum: [PICKUP, DELIVERY] }
+        estimatedArrivalAt: { $ref: '#/components/schemas/InstantUtc' }
+        estimatedMinutes: { type: integer, format: int64 }
+        calculatedAt: { $ref: '#/components/schemas/InstantUtc' }
+        distanceMetres: { type: integer, format: int64 }
+    ExternalProof:
+      type: object
+      additionalProperties: false
+      properties:
+        pickedUpAt: { type: [string, 'null'], format: date-time }
+        pickupPhotoPath: { type: [string, 'null'], format: uri-reference }
+        deliveredAt: { type: [string, 'null'], format: date-time }
+        deliveryProofType: { type: [string, 'null'], enum: [PHOTO, SIGNATURE, null] }
+        deliveryProofPath: { type: [string, 'null'], format: uri-reference }
+        failureReasonCode: { type: [string, 'null'] }
     ExternalRecipient:
       type: object
       additionalProperties: false
@@ -694,6 +848,17 @@ components:
           - 'null'
           format: decimal
           minimum: 0
+        deliveryFeeAmount: { type: [number, 'null'], format: decimal, minimum: 0 }
+        deliveryFeeCurrency: { type: [string, 'null'], example: SAR }
+        eta:
+          oneOf:
+          - $ref: '#/components/schemas/LiveEta'
+          - type: 'null'
+        proofAvailable: { type: boolean }
+        proofType: { type: [string, 'null'], enum: [PHOTO, SIGNATURE, null] }
+        deliveredAt: { type: [string, 'null'], format: date-time }
+        failureReasonCode: { type: [string, 'null'] }
+        cancellationReasonCode: { type: [string, 'null'] }
         createdAt:
           $ref: '#/components/schemas/InstantUtc'
         version:
@@ -787,6 +952,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ExternalTrackingStep'
+        eta:
+          oneOf:
+          - $ref: '#/components/schemas/LiveEta'
+          - type: 'null'
     ExternalTrackingStep:
       type: object
       additionalProperties: false

@@ -1,6 +1,6 @@
 ---
 title: "Authentication"
-description: "OAuth 2.0 client credentials, the three scopes, and how tokens behave."
+description: "OAuth 2.0 client credentials, scopes, and how tokens behave."
 ---
 
 External integrations authenticate with the OAuth 2.0 **client-credentials** grant. There is no user in the loop: the credential belongs to your merchant company, and every request it makes is attributed to that company.
@@ -55,9 +55,13 @@ curl "$BASE_URL/v2/external/webhook" \
 
 | Scope | Grants |
 | --- | --- |
-| `shipments:read` | Read your shipments and their tracking |
+| `shipments:read` | Read your shipments and protected proof |
 | `shipments:write` | Create and cancel shipments |
+| `quotes:write` | Request current price estimates and serviceability checks |
+| `tracking:read` | Read authenticated tracking and live ETA |
 | `webhooks:manage` | Configure your webhook and rotate its secret |
+
+Each credential belongs to one merchant company. If you manage independent stores, each merchant authorizes its own credential. They can register the same callback URL with separate signing secrets.
 
 A token carries exactly the scopes its credential was granted. A request outside them is rejected with `403`, not `401` — the caller is known, and not permitted.
 

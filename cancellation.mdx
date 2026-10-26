@@ -3,14 +3,14 @@ title: "Cancellation"
 description: "Calling a shipment back, and when it is too late."
 ---
 
-A shipment can be cancelled **until a driver is assigned to it**. After that, cancellation is refused — a driver is already on the way, and the shipment has to be resolved in the field.
+A shipment can be cancelled **until physical pickup**, including after driver assignment. Cancellation withdraws active driver offers.
 
 ```bash
 curl -X POST "$BASE_URL/v2/external/shipments/$SHIPMENT_ID/cancel" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-Requires `shipments:write`. The body is optional; the response is the shipment, now `CANCELLED`.
+Requires `shipments:write`. The body is optional; the response is the shipment, now `CANCELLED`, with `cancellationReasonCode`.
 
 ## The reason
 
@@ -28,8 +28,8 @@ curl -X POST "$BASE_URL/v2/external/shipments/$SHIPMENT_ID/cancel" \
 ## When it is refused
 
 <AccordionGroup>
-  <Accordion title="409 — a driver already has it">
-    The shipment has been assigned, picked up, delivered, failed, or already cancelled. Read the shipment back to see where it actually is.
+  <Accordion title="409 — pickup has happened">
+    The parcel has been picked up or the shipment is terminal. `SHIPMENT_RETURN_REQUIRED` means the original delivery and custody history remain intact; arrange a separate return shipment. Read the shipment back to see its current status.
   </Accordion>
 
   <Accordion title="422 — the reason is malformed">
@@ -42,7 +42,7 @@ curl -X POST "$BASE_URL/v2/external/shipments/$SHIPMENT_ID/cancel" \
 </AccordionGroup>
 
 <Tip>
-  Cancellation racing an assignment is normal, not exceptional. Handle `409` by re-reading the shipment and reporting its real status — not by retrying the cancel.
+  Cancellation racing pickup can return `409`. Re-read the shipment and report its current status.
 </Tip>
 
 ## Retrying safely
