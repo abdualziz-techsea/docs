@@ -1,0 +1,40 @@
+---
+title: "Price and availability"
+description: "Check a current delivery price and serviceability before checkout."
+---
+
+Both calls require `quotes:write` and your merchant OAuth token.
+
+## Current price estimate
+
+```bash
+curl -X POST "$BASE_URL/v2/external/quotes" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "merchantId": "0198f7c0-7f51-7000-8000-0000000000a0",
+    "pickupLatitude": 24.713600,
+    "pickupLongitude": 46.675300,
+    "destinationLatitude": 24.774265,
+    "destinationLongitude": 46.738586
+  }'
+```
+
+The response includes `price.amount`, `price.currency`, `distanceMetres`, `durationSeconds`, and route geometry. `durationSeconds` is road travel time. This estimate has no quote ID or expiry and does not guarantee the price of a later shipment. Shipment creation measures and prices the route again; read its frozen `deliveryFeeAmount` for the charge.
+
+## Current serviceability
+
+```bash
+curl -X POST "$BASE_URL/v2/external/serviceability" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pickup": { "savedLocationCode": "MAIN" },
+    "destination": { "latitude": 24.774265, "longitude": 46.738586 },
+    "pickupWindow": { "start": "2026-10-26T09:00:00Z", "end": "2026-10-26T10:00:00Z" }
+  }'
+```
+
+You may use a pickup coordinate instead of `savedLocationCode`. The response contains `serviceable`, `evaluatedAt`, `unavailableReasonCode`, and `coverageZoneVersionId` when a published matching zone has a version. An unavailable reason is one of `PICKUP_UNAVAILABLE`, `PICKUP_OUTSIDE_OPERATING_HOURS`, `OUTSIDE_MERCHANT_COVERAGE`, or `NO_PROVIDER_AVAILABLE`.
+
+This checks the saved pickup, its hours, merchant coverage, and current carrier eligibility. It does not reserve a driver. Shipment creation can accept an order while no driver is online and queue it for dispatch, so use this result to decide checkout availability rather than assuming it is a creation precondition.
