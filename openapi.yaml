@@ -10,15 +10,16 @@ servers:
   description: Production. Production credentials only.
 tags:
 - name: Authentication
-  description: OAuth 2.0 client-credentials token issuance
+  description: Authentication, sessions, the company a principal is, and merchant API credentials
 - name: External Shipments
-  description: Create, read, and cancel your shipments
+  description: OAuth-scoped Merchant shipment creation, lookup, and cancellation
 - name: External Tracking
-  description: Partner and customer-safe shipment progress
+  description: Merchant-authenticated and privacy-minimized public tracking projections
 - name: External Webhooks
-  description: Your single signed shipment webhook
+- name: Sandbox
+  description: Tenant-bound self-service fixture lifecycle, available only on the isolated sandbox deployment
 paths:
-  /oauth/token:
+  /api/v2/oauth/token:
     post:
       tags:
       - Authentication
@@ -27,7 +28,6 @@ paths:
       description: Standard RFC 6749 token endpoint. The client authenticates with HTTP Basic (preferred)
         or body client_id/client_secret parameters and receives a short-lived signed JWT bearer token.
         Responses use OAuth error semantics and are never stored.
-      security: []
       requestBody:
         required: true
         content:
@@ -81,65 +81,181 @@ paths:
           $ref: '#/components/responses/ValidationFailed'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
-  /v2/external/quotes:
+  /api/v2/oauth/jwks.json:
+    get:
+      tags:
+      - Authentication
+      operationId: getOAuthVerificationKeys
+      summary: Public OAuth token verification keys (RFC 7517)
+      responses:
+        '200':
+          description: JSON Web Key Set of public verification keys
+          content:
+            application/json:
+              schema:
+                type: object
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+      description: Public OAuth token verification keys (RFC 7517).
+  /api/v2/external/sandbox/bootstrap:
     post:
-      tags: [External Shipments]
+      tags:
+      - Sandbox
+      operationId: bootstrapExternalMerchantSandbox
+      summary: Idempotently provision this merchant's complete sandbox fixture
+      description: Sandbox deployment only. Creates or repairs a tenant-exclusive merchant, internal carrier,
+        coverage, driver, and canonical location fixture. It never accepts hidden identifiers or changes
+        another tenant.
+      security:
+      - oauthClientCredentials:
+        - shipments:write
+      responses:
+        '200':
+          description: Current readiness after provisioning
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SandboxReadiness'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '404':
+          $ref: '#/components/responses/ResourceNotFound'
+  /api/v2/external/sandbox/readiness:
+    get:
+      tags:
+      - Sandbox
+      operationId: getExternalMerchantSandboxReadiness
+      summary: Read this merchant's sandbox readiness checklist
+      security:
+      - oauthClientCredentials:
+        - shipments:write
+      responses:
+        '200':
+          description: Tenant-bound readiness and routable fixture coordinates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SandboxReadiness'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '404':
+          $ref: '#/components/responses/ResourceNotFound'
+  /api/v2/external/sandbox/reset:
+    post:
+      tags:
+      - Sandbox
+      operationId: resetExternalMerchantSandbox
+      summary: Reset only the calling merchant's sandbox integration fixtures
+      description: Explicitly revokes this tenant's public tracking links and webhook endpoints, repairs
+        its fixture prerequisites, increments the generation, and preserves canonical immutable shipment
+        history. Shared/global platform configuration and other tenants are untouched.
+      security:
+      - oauthClientCredentials:
+        - shipments:write
+      responses:
+        '200':
+          description: Current readiness after reset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SandboxReadiness'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '404':
+          $ref: '#/components/responses/ResourceNotFound'
+        '409':
+          $ref: '#/components/responses/StateConflict'
+  /api/v2/external/sandbox/dispatch-holds:
+    post:
+      tags:
+      - Sandbox
+      operationId: holdNextExternalMerchantSandboxDispatch
+      summary: Keep the next sandbox shipment before the driver-offer boundary
+      description: Sandbox deployment only. Idempotently arms one tenant-bound hold. The next shipment
+        consumes it atomically and remains PENDING_APPROVAL with no driver offer, allowing the merchant
+        cancellation boundary to be exercised deterministically.
+      security:
+      - oauthClientCredentials:
+        - shipments:write
+      responses:
+        '200':
+          description: Readiness with nextShipmentDispatchHeld set to true
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SandboxReadiness'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '404':
+          $ref: '#/components/responses/ResourceNotFound'
+        '409':
+          $ref: '#/components/responses/StateConflict'
+  /api/v2/external/quotes:
+    post:
+      tags:
+      - External Shipments
       operationId: createExternalShipmentQuote
-      summary: Estimate the current merchant delivery price
-      description: An estimate only; shipment creation prices the route again.
+      summary: Quote a merchant delivery fee that is honoured for 15 minutes
+      description: Prices the road route between the two points with the merchant's current tariff, exactly
+        as shipment creation does, and returns a quoteId valid until expiresAt (15 minutes). A shipment
+        created with that quoteId before it expires, for the same pickup and destination points, is charged
+        this price even if the tariff changes in between. A quote prices at most one shipment. Without
+        a quoteId, creation prices the shipment again. To quote a shipment that will be created with pickup.savedLocationCode,
+        quote with that location's merchantId, branchId and pickupLocationId (from GET /api/v2/external/pickup-locations);
+        a quote priced from a different pickup point is refused at creation with QUOTE_MISMATCH. No reservation
+        of driver capacity is made; check availability with /api/v2/external/serviceability.
       security:
-      - oauthClientCredentials: [quotes:write]
-      x-drophub-permission: quotes:write
+      - oauthClientCredentials:
+        - quotes:write
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/ExternalQuoteRequest' }
+            schema:
+              $ref: '#/components/schemas/ShipmentPriceEstimateRequest'
       responses:
         '200':
-          description: Current price and route estimate
+          description: Current quote
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ExternalQuote' }
-        '401': { $ref: '#/components/responses/AuthenticationFailed' }
-        '403': { $ref: '#/components/responses/AccessDenied' }
-        '422': { $ref: '#/components/responses/ValidationFailed' }
-  /v2/external/serviceability:
-    post:
-      tags: [External Shipments]
-      operationId: checkExternalServiceability
-      summary: Check current delivery serviceability
-      description: A point-in-time checkout decision, not a driver reservation.
-      security:
-      - oauthClientCredentials: [quotes:write]
-      x-drophub-permission: quotes:write
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/ExternalServiceabilityRequest' }
-      responses:
-        '200':
-          description: Current serviceability decision
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ExternalServiceability' }
-        '401': { $ref: '#/components/responses/AuthenticationFailed' }
-        '403': { $ref: '#/components/responses/AccessDenied' }
-        '422': { $ref: '#/components/responses/ValidationFailed' }
-  /v2/external/shipments:
+              schema:
+                $ref: '#/components/schemas/ShipmentPriceEstimate'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v2/external/shipments:
     post:
       tags:
       - External Shipments
       operationId: createExternalShipment
       summary: Create one shipment from a merchant reference and two location pins
-      description: DropHub derives address and city context, route, coverage, pricing, carrier eligibility,
+      description: 'DropHub derives address and city context, route, coverage, pricing, carrier eligibility,
         service and dispatch decisions, SAR/payment defaults, lifecycle defaults, and the customer tracking
-        URL. Idempotency-Key is optional because the merchant reference is the default key.
+        URL. Idempotency-Key is optional because the merchant reference is the default key. With quoteId
+        the delivery fee is the quoted one. Quote refusals: 422 QUOTE_NOT_FOUND (unknown or another merchant''s),
+        422 QUOTE_EXPIRED, 422 QUOTE_MISMATCH (different pickup or destination point), 409 QUOTE_ALREADY_USED
+        (already priced another shipment). An idempotent replay of the same request returns the original
+        shipment with 200.'
       security:
       - oauthClientCredentials:
         - shipments:write
-      x-drophub-permission: shipments:write
       parameters:
       - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -177,6 +293,18 @@ paths:
                     pieces: 1
                     weightKg: 2.4
                   codAmount: 125.0
+              quoted:
+                value:
+                  reference: ORDER-1044
+                  quoteId: 01a190b4-c53d-7143-a6e2-5ef1e6b4c697
+                  pickup:
+                    savedLocationCode: MAIN
+                  destination:
+                    latitude: 24.774265
+                    longitude: 46.738586
+                  recipient:
+                    name: Noura
+                    mobile: '0551234567'
       responses:
         '201':
           $ref: '#/components/responses/ExternalShipmentCreated'
@@ -196,7 +324,41 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/ProviderUnavailable'
-  /v2/external/shipments/{shipmentId}:
+  /api/v2/external/serviceability:
+    post:
+      tags:
+      - External Shipments
+      operationId: checkExternalServiceability
+      summary: Check current pickup, merchant coverage and carrier availability
+      description: A point-in-time checkout decision, not a capacity reservation or shipment creation
+        guarantee.
+      security:
+      - oauthClientCredentials:
+        - quotes:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExternalServiceabilityRequest'
+      responses:
+        '200':
+          description: Current serviceability decision
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalServiceability'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v2/external/shipments/{shipmentId}:
     get:
       tags:
       - External Shipments
@@ -205,7 +367,6 @@ paths:
       security:
       - oauthClientCredentials:
         - shipments:read
-      x-drophub-permission: shipments:read
       parameters:
       - $ref: '#/components/parameters/ShipmentId'
       responses:
@@ -217,46 +378,226 @@ paths:
           $ref: '#/components/responses/AccessDenied'
         '404':
           $ref: '#/components/responses/ResourceNotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
         '429':
           $ref: '#/components/responses/RateLimited'
-  /v2/external/shipments/{shipmentId}/tracking:
-    get:
+    patch:
       tags:
-      - External Tracking
-      operationId: getExternalShipmentTracking
-      summary: Read partner-safe shipment progress and available driver location
+      - External Shipments
+      operationId: changeExternalShipment
+      summary: Change the destination or recipient of an own Direct API shipment
+      description: 'If-Match carries the shipment version from its ETag. A new destination is accepted
+        before pickup (CREATED, ASSIGNED, NO_DRIVER_AVAILABLE) when it is inside the same coverage checkout
+        serviceability applies and the merchant''s agreement prices the new route exactly as the frozen
+        delivery fee; the fee is never restated. A new recipient is accepted until the shipment is delivered,
+        failed or cancelled. The assigned driver keeps the assignment and sees the new destination; a
+        shipment.updated webhook is sent. A new pickupWindow is accepted until a driver accepts the shipment
+        and must fit the pickup location''s opening hours (422 PICKUP_OUTSIDE_OPERATING_HOURS); the price
+        does not depend on it. Shipments that came from a store platform (Salla, Zid) are changed in that
+        platform: 409 SHIPMENT_CHANGE_NOT_SUPPORTED. Other refusals: 412 PRECONDITION_FAILED (stale If-Match),
+        409 SHIPMENT_CHANGE_NOT_ALLOWED (state), 409 SHIPMENT_PRICE_WOULD_CHANGE, 422 OUTSIDE_MERCHANT_COVERAGE
+        or NO_PROVIDER_AVAILABLE, 422 SHIPMENT_VALIDATION_FAILED (nothing to change).'
       security:
       - oauthClientCredentials:
-        - tracking:read
-      x-drophub-permission: tracking:read
+        - shipments:write
       parameters:
       - $ref: '#/components/parameters/ShipmentId'
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+          example: '"3"'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExternalShipmentChangeRequest'
+            examples:
+              newDestinationAndRecipient:
+                value:
+                  destination:
+                    latitude: 24.775
+                    longitude: 46.739
+                  recipient:
+                    name: Noura
+                    mobile: 0559876543
       responses:
         '200':
-          description: Partner-safe tracking
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ExternalTracking'
+          $ref: '#/components/responses/ExternalShipmentResource'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/AuthenticationFailed'
         '403':
           $ref: '#/components/responses/AccessDenied'
         '404':
           $ref: '#/components/responses/ResourceNotFound'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-  /v2/external/shipments/{shipmentId}/cancel:
+        '409':
+          $ref: '#/components/responses/StateConflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+  /api/v2/external/shipments/{shipmentId}/incidents:
+    get:
+      tags:
+      - External Shipments
+      operationId: listExternalShipmentIncidents
+      summary: Loss, damage and failed-delivery incidents of an owned shipment
+      security:
+      - oauthClientCredentials:
+        - shipments:read
+      parameters:
+      - $ref: '#/components/parameters/ShipmentId'
+      responses:
+        '200':
+          description: Incidents, oldest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExternalIncident'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '404':
+          $ref: '#/components/responses/ResourceNotFound'
+  /api/v2/external/shipments/{shipmentId}/incidents/evidence/{assetId}:
+    get:
+      tags:
+      - External Shipments
+      operationId: getExternalShipmentIncidentEvidence
+      summary: Read one evidence file attached to an incident of an owned shipment
+      security:
+      - oauthClientCredentials:
+        - shipments:read
+      parameters:
+      - $ref: '#/components/parameters/ShipmentId'
+      - name: assetId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Evidence bytes; Content-Type is the stored media type, Cache-Control is no-store
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '404':
+          $ref: '#/components/responses/ResourceNotFound'
+  /api/v2/external/coverage/areas:
+    get:
+      tags:
+      - External Shipments
+      operationId: getExternalDeliveryArea
+      summary: Where DropHub's delivery companies deliver, combined
+      description: The union of the eligible delivery companies' city and district coverage, without naming
+        any company. The merchant's own coverage zones still apply at serviceability and creation; check
+        a concrete pair of points with POST /api/v2/external/serviceability.
+      security:
+      - oauthClientCredentials:
+        - quotes:write
+      responses:
+        '200':
+          description: Combined delivery area
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalDeliveryArea'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+  /api/v2/external/pickup-locations:
+    get:
+      tags:
+      - External Shipments
+      operationId: listExternalPickupLocations
+      summary: List the merchant's pickup locations and their collection hours
+      security:
+      - oauthClientCredentials:
+        - shipments:read
+      parameters:
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+      - name: cursor
+        in: query
+        schema:
+          type: string
+          maxLength: 256
+      responses:
+        '200':
+          description: One page of pickup locations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalPickupLocationPage'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+  /api/v2/external/sandbox/shipments/{shipmentId}/delivery-failures:
+    post:
+      tags:
+      - Sandbox
+      operationId: failExternalSandboxDelivery
+      summary: Have the sandbox driver report a delivery as failed
+      description: Sandbox deployments only (404 SANDBOX_ONLY elsewhere). The disposable driver that accepted
+        this shipment reports it undeliverable through the real driver operation, so the shipment moves
+        to FAILED with the given reason and the shipment.failed webhook is sent. Every other sandbox step
+        (assignment, pickup, delivery with photo proof) is performed automatically by the sandbox driver.
+        409 SANDBOX_DRIVER_NOT_CARRYING_SHIPMENT until a sandbox driver has accepted the shipment, and
+        once it is delivered, failed or cancelled.
+      security:
+      - oauthClientCredentials:
+        - shipments:write
+      parameters:
+      - $ref: '#/components/parameters/ShipmentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SandboxDeliveryFailureRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/ExternalShipmentResource'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '404':
+          $ref: '#/components/responses/ResourceNotFound'
+        '409':
+          $ref: '#/components/responses/StateConflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+  /api/v2/external/shipments/{shipmentId}/cancel:
     post:
       tags:
       - External Shipments
       operationId: cancelExternalShipment
       summary: Cancel before physical pickup
-      description: Includes accepted driver assignments. After pickup, returns SHIPMENT_RETURN_REQUIRED.
+      description: Allows cancellation while pending, ready, without a driver, offered or accepted, atomically
+        withdrawing live driver offers. Once the parcel is picked up, returns 409 with SHIPMENT_RETURN_REQUIRED;
+        create a separate return shipment instead. Delivery and custody facts are preserved.
       security:
       - oauthClientCredentials:
         - shipments:write
-      x-drophub-permission: shipments:write
       parameters:
       - $ref: '#/components/parameters/ShipmentId'
       - $ref: '#/components/parameters/IdempotencyKey'
@@ -281,14 +622,15 @@ paths:
           $ref: '#/components/responses/ValidationFailed'
         '429':
           $ref: '#/components/responses/RateLimited'
-  /v2/external/shipments/{shipmentId}/proof:
+  /api/v2/external/shipments/{shipmentId}/proof:
     get:
-      tags: [External Shipments]
+      tags:
+      - External Shipments
       operationId: getExternalShipmentProof
-      summary: Read protected proof metadata
+      summary: Read protected proof metadata for an owned shipment
       security:
-      - oauthClientCredentials: [shipments:read]
-      x-drophub-permission: shipments:read
+      - oauthClientCredentials:
+        - shipments:read
       parameters:
       - $ref: '#/components/parameters/ShipmentId'
       responses:
@@ -296,30 +638,131 @@ paths:
           description: Available evidence metadata and authenticated content paths
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ExternalProof' }
-        '401': { $ref: '#/components/responses/AuthenticationFailed' }
-        '403': { $ref: '#/components/responses/AccessDenied' }
-        '404': { $ref: '#/components/responses/ResourceNotFound' }
-  /v2/external/shipments/{shipmentId}/proof/{stage}/content:
+              schema:
+                $ref: '#/components/schemas/ExternalProof'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '404':
+          $ref: '#/components/responses/ResourceNotFound'
+  /api/v2/external/shipments/{shipmentId}/proof/{stage}/content:
     get:
-      tags: [External Shipments]
+      tags:
+      - External Shipments
       operationId: getExternalShipmentProofContent
-      summary: Read one protected proof asset
+      summary: Read one protected proof asset for an owned shipment
       security:
-      - oauthClientCredentials: [shipments:read]
-      x-drophub-permission: shipments:read
+      - oauthClientCredentials:
+        - shipments:read
       parameters:
       - $ref: '#/components/parameters/ShipmentId'
       - name: stage
         in: path
         required: true
-        schema: { type: string, enum: [pickup, delivery] }
+        schema:
+          type: string
+          enum:
+          - pickup
+          - delivery
       responses:
-        '200': { description: Evidence bytes with no-store cache control }
-        '401': { $ref: '#/components/responses/AuthenticationFailed' }
-        '403': { $ref: '#/components/responses/AccessDenied' }
-        '404': { $ref: '#/components/responses/ResourceNotFound' }
-  /v2/external/webhook:
+        '200':
+          description: Proof bytes; Content-Type is the stored media type, Cache-Control is no-store
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '404':
+          $ref: '#/components/responses/ResourceNotFound'
+  /api/v2/external/shipments/{shipmentId}/tracking:
+    get:
+      tags:
+      - External Tracking
+      operationId: getExternalShipmentTracking
+      summary: Read partner-safe shipment progress and available driver location
+      security:
+      - oauthClientCredentials:
+        - tracking:read
+      parameters:
+      - $ref: '#/components/parameters/ShipmentId'
+      responses:
+        '200':
+          description: Partner-safe tracking
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalTracking'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '404':
+          $ref: '#/components/responses/ResourceNotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v2/public/tracking/{code}:
+    get:
+      tags:
+      - External Tracking
+      operationId: getPublicShipmentTracking
+      summary: Read customer-safe progress through a time-bound bearer link
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{43}$
+      responses:
+        '200':
+          description: Customer-safe tracking without exact endpoints or identity
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicTracking'
+        '404':
+          $ref: '#/components/responses/ResourceNotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v2/public/tracking/waybills/{shipmentNumber}:
+    get:
+      tags:
+      - External Tracking
+      operationId: getPublicWaybillTracking
+      summary: Read customer-safe progress through the waybill number printed on the label
+      description: Opened with the number printed on the label, which is what a customer actually has.
+        A link is handed to one person; a number travels on a parcel and is read out over the phone, so
+        this answers only where the parcel has got to, on the same rounded public projection an opaque
+        link opens.
+      parameters:
+      - name: shipmentNumber
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[A-Za-z0-9-]{4,64}$
+      responses:
+        '200':
+          description: Customer-safe tracking without exact endpoints or identity
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicTracking'
+        '404':
+          $ref: '#/components/responses/ResourceNotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v2/external/webhook:
     post:
       tags:
       - External Webhooks
@@ -329,7 +772,6 @@ paths:
       security:
       - oauthClientCredentials:
         - webhooks:manage
-      x-drophub-permission: webhooks:manage
       parameters:
       - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -359,7 +801,6 @@ paths:
       security:
       - oauthClientCredentials:
         - webhooks:manage
-      x-drophub-permission: webhooks:manage
       responses:
         '200':
           $ref: '#/components/responses/ExternalWebhookResource'
@@ -377,7 +818,6 @@ paths:
       security:
       - oauthClientCredentials:
         - webhooks:manage
-      x-drophub-permission: webhooks:manage
       parameters:
       - $ref: '#/components/parameters/IfMatch'
       requestBody:
@@ -409,7 +849,6 @@ paths:
       security:
       - oauthClientCredentials:
         - webhooks:manage
-      x-drophub-permission: webhooks:manage
       parameters:
       - $ref: '#/components/parameters/IfMatch'
       responses:
@@ -425,7 +864,7 @@ paths:
           $ref: '#/components/responses/PreconditionFailed'
         '428':
           $ref: '#/components/responses/PreconditionRequired'
-  /v2/external/webhook/secret-rotations:
+  /api/v2/external/webhook/secret-rotations:
     post:
       tags:
       - External Webhooks
@@ -434,7 +873,6 @@ paths:
       security:
       - oauthClientCredentials:
         - webhooks:manage
-      x-drophub-permission: webhooks:manage
       parameters:
       - $ref: '#/components/parameters/IfMatch'
       responses:
@@ -452,50 +890,18 @@ paths:
           $ref: '#/components/responses/PreconditionRequired'
         '503':
           $ref: '#/components/responses/ProviderUnavailable'
-  /v2/public/tracking/{code}:
-    get:
-      tags:
-      - External Tracking
-      operationId: getPublicShipmentTracking
-      summary: Read customer-safe progress through a time-bound bearer link
-      security: []
-      parameters:
-      - name: code
-        in: path
-        required: true
-        schema:
-          type: string
-          pattern: ^[A-Za-z0-9_-]{43}$
-      responses:
-        '200':
-          description: Customer-safe tracking without exact endpoints or identity
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                const: no-store
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PublicTracking'
-        '404':
-          $ref: '#/components/responses/ResourceNotFound'
-        '429':
-          $ref: '#/components/responses/RateLimited'
 components:
-  securitySchemes:
-    oauthClientCredentials:
-      type: oauth2
-      description: OAuth 2.0 client-credentials flow for external machine-to-machine integrations.
-      flows:
-        clientCredentials:
-          tokenUrl: /oauth/token
-          scopes:
-            shipments:read: Read Merchant-owned shipments
-            shipments:write: Create and cancel Merchant-owned shipments
-            quotes:write: Request price estimates and serviceability checks
-            tracking:read: Read authenticated tracking and live ETA
-            webhooks:manage: Configure and rotate the merchant's single signed shipment webhook
+  headers:
+    EntityTag:
+      description: Strong numeric entity version for the next state-changing request.
+      schema:
+        type: string
+        pattern: ^"[0-9]+"$
+    WwwAuthenticate:
+      description: Bearer challenge for an unauthenticated or invalid-token request.
+      schema:
+        type: string
+        example: Bearer
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -528,15 +934,14 @@ components:
         format: uuid
   responses:
     AccessDenied:
-      description: The token is valid but the credential lacks the required scope, or the resource belongs
-        to another merchant. The machine code is `ACCESS_DENIED`. Retrying with the same credential will
-        never succeed.
+      description: Access denied without exposing internal policy or resource ownership. No operation
+        requires a second factor or a fresher live session.
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
     AuthenticationFailed:
-      description: 'Authentication failed: the bearer token is missing, malformed, or expired.'
+      description: Authentication failed without account, token, or tenant enumeration.
       headers:
         WWW-Authenticate:
           $ref: '#/components/headers/WwwAuthenticate'
@@ -545,11 +950,11 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
           example:
-            type: https://api.drop-hub.com/problems/authentication-required
+            type: https://api.drophub.example/problems/authentication-required
             title: Authentication required
             status: 401
             detail: Authentication is required for this resource.
-            instance: /v2/external/shipments/018f2d8a-1f00-7000-8000-000000000206
+            instance: /api/v2/external/shipments/018f2d8a-1f00-7000-8000-000000000206
             code: AUTHENTICATION_REQUIRED
             timestamp: '2026-08-22T18:30:00Z'
             correlationId: 018f2d8a-1f00-7000-8000-000000000207
@@ -624,8 +1029,7 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
     ProviderUnavailable:
-      description: A DropHub dependency is temporarily unavailable and the operation failed closed rather
-        than guessing. Retry with bounded exponential backoff and jitter.
+      description: No qualified routing provider is configured; the operation fails closed.
       content:
         application/problem+json:
           schema:
@@ -648,6 +1052,12 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
+    ServiceUnavailable:
+      description: A required qualified external provider is not configured or available.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
     StateConflict:
       description: Current state prevents the requested transition.
       content:
@@ -661,6 +1071,30 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
   schemas:
+    ExternalAssignedDriver:
+      type: object
+      additionalProperties: false
+      description: The driver who accepted the shipment, while it is still moving. Phone number, surname,
+        licence and identifiers are not disclosed; contact goes through the shipment conversation.
+      properties:
+        firstName:
+          type:
+          - string
+          - 'null'
+        vehicleType:
+          type:
+          - string
+          - 'null'
+          enum:
+          - MOTORCYCLE
+          - CAR
+          - VAN
+          - TRUCK
+          - null
+        vehiclePlate:
+          type:
+          - string
+          - 'null'
     ExternalCoordinate:
       type: object
       additionalProperties: false
@@ -672,6 +1106,90 @@ components:
           $ref: '#/components/schemas/Latitude'
         longitude:
           $ref: '#/components/schemas/Longitude'
+    ExternalDeliveryArea:
+      type: object
+      additionalProperties: false
+      required:
+      - scope
+      - cities
+      properties:
+        scope:
+          type: string
+          enum:
+          - UNRESTRICTED
+          - AREAS
+          - NONE
+          description: UNRESTRICTED when at least one eligible delivery company has no area limit; AREAS
+            lists the combined cities and districts; NONE when no company is available.
+        cities:
+          type: array
+          items:
+            type: object
+            properties:
+              cityId:
+                $ref: '#/components/schemas/Uuid'
+              cityCode:
+                type: string
+              nameAr:
+                type:
+                - string
+                - 'null'
+              nameEn:
+                type:
+                - string
+                - 'null'
+              wholeCity:
+                type: boolean
+              districts:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    districtId:
+                      $ref: '#/components/schemas/Uuid'
+                    nameAr:
+                      type:
+                      - string
+                      - 'null'
+                    nameEn:
+                      type:
+                      - string
+                      - 'null'
+    ExternalIncident:
+      type: object
+      additionalProperties: false
+      required:
+      - type
+      - status
+      - reportedAt
+      - evidencePaths
+      properties:
+        type:
+          type: string
+          enum:
+          - LOST
+          - DAMAGED
+          - DELIVERY_FAILED
+        status:
+          type: string
+          enum:
+          - OPEN
+          - RESOLVED
+          - FINAL
+          description: OPEN while operations are on hold for the report; RESOLVED once released; FINAL
+            for a failed delivery.
+        reasonCode:
+          type:
+          - string
+          - 'null'
+          description: Structured failure reason; carrier free text is never returned.
+        reportedAt:
+          $ref: '#/components/schemas/InstantUtc'
+        evidencePaths:
+          type: array
+          items:
+            type: string
+            format: uri-reference
     ExternalMapLocation:
       type: object
       additionalProperties: false
@@ -729,6 +1247,99 @@ components:
             type: string
             pattern: ^[A-Z0-9][A-Z0-9_-]{1,63}$
       - $ref: '#/components/schemas/ExternalCoordinate'
+    ExternalPickupLocation:
+      type: object
+      additionalProperties: false
+      required:
+      - pickupLocationId
+      - merchantId
+      - branchId
+      - code
+      - name
+      - latitude
+      - longitude
+      - status
+      - timezone
+      - openingHours
+      - pickupWaves
+      properties:
+        pickupLocationId:
+          $ref: '#/components/schemas/Uuid'
+        merchantId:
+          $ref: '#/components/schemas/Uuid'
+        branchId:
+          $ref: '#/components/schemas/Uuid'
+        code:
+          type: string
+        name:
+          type: string
+        cityCode:
+          type:
+          - string
+          - 'null'
+        latitude:
+          $ref: '#/components/schemas/Latitude'
+        longitude:
+          $ref: '#/components/schemas/Longitude'
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - INACTIVE
+        timezone:
+          type: string
+          example: Asia/Riyadh
+          description: IANA zone the opening hours are local to.
+        openingHours:
+          type: array
+          description: Local collection hours per ISO day of week (1 = Monday). Empty means no hours are
+            configured.
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - dayOfWeek
+            - opensAt
+            - closesAt
+            properties:
+              dayOfWeek:
+                type: integer
+                minimum: 1
+                maximum: 7
+              opensAt:
+                type: string
+                example: 08:00:00
+              closesAt:
+                type: string
+                example: '20:00:00'
+        pickupWaves:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - waveTime
+            properties:
+              waveTime:
+                type: string
+                example: '10:00:00'
+              label:
+                type:
+                - string
+                - 'null'
+    ExternalPickupLocationPage:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExternalPickupLocation'
+        nextCursor:
+          type:
+          - string
+          - 'null'
     ExternalPickupWindow:
       type: object
       additionalProperties: false
@@ -740,73 +1351,40 @@ components:
           $ref: '#/components/schemas/InstantUtc'
         end:
           $ref: '#/components/schemas/InstantUtc'
-    ExternalQuoteRequest:
-      type: object
-      additionalProperties: false
-      required: [merchantId, destinationLatitude, destinationLongitude]
-      properties:
-        merchantId: { $ref: '#/components/schemas/Uuid' }
-        branchId: { type: [string, 'null'], format: uuid }
-        pickupLocationId: { type: [string, 'null'], format: uuid }
-        pickupLatitude: { type: [number, 'null'], minimum: -90, maximum: 90 }
-        pickupLongitude: { type: [number, 'null'], minimum: -180, maximum: 180 }
-        destinationLatitude: { type: number, minimum: -90, maximum: 90 }
-        destinationLongitude: { type: number, minimum: -180, maximum: 180 }
-    ExternalQuote:
-      type: object
-      additionalProperties: false
-      required: [distanceMetres, durationSeconds, price, routeGeometry, routeGeometryFormat]
-      properties:
-        distanceMetres: { type: integer, format: int64, minimum: 0 }
-        durationSeconds: { type: integer, format: int64, minimum: 0 }
-        price:
-          type: object
-          additionalProperties: false
-          required: [amount, currency]
-          properties:
-            amount: { type: number }
-            currency: { type: string, example: SAR }
-        routeGeometry: { type: string }
-        routeGeometryFormat: { type: string }
-    ExternalServiceabilityRequest:
-      type: object
-      additionalProperties: false
-      required: [pickup, destination]
-      properties:
-        pickup: { $ref: '#/components/schemas/ExternalPickup' }
-        destination: { $ref: '#/components/schemas/ExternalCoordinate' }
-        pickupWindow: { $ref: '#/components/schemas/ExternalPickupWindow' }
-    ExternalServiceability:
-      type: object
-      additionalProperties: false
-      required: [serviceable, evaluatedAt]
-      properties:
-        serviceable: { type: boolean }
-        unavailableReasonCode:
-          type: [string, 'null']
-          enum: [PICKUP_UNAVAILABLE, PICKUP_OUTSIDE_OPERATING_HOURS, OUTSIDE_MERCHANT_COVERAGE, NO_PROVIDER_AVAILABLE, null]
-        evaluatedAt: { $ref: '#/components/schemas/InstantUtc' }
-        coverageZoneVersionId: { type: [string, 'null'], format: uuid }
-    LiveEta:
-      type: object
-      additionalProperties: false
-      required: [target, estimatedArrivalAt, estimatedMinutes, calculatedAt, distanceMetres]
-      properties:
-        target: { type: string, enum: [PICKUP, DELIVERY] }
-        estimatedArrivalAt: { $ref: '#/components/schemas/InstantUtc' }
-        estimatedMinutes: { type: integer, format: int64 }
-        calculatedAt: { $ref: '#/components/schemas/InstantUtc' }
-        distanceMetres: { type: integer, format: int64 }
     ExternalProof:
       type: object
       additionalProperties: false
       properties:
-        pickedUpAt: { type: [string, 'null'], format: date-time }
-        pickupPhotoPath: { type: [string, 'null'], format: uri-reference }
-        deliveredAt: { type: [string, 'null'], format: date-time }
-        deliveryProofType: { type: [string, 'null'], enum: [PHOTO, SIGNATURE, null] }
-        deliveryProofPath: { type: [string, 'null'], format: uri-reference }
-        failureReasonCode: { type: [string, 'null'] }
+        pickedUpAt:
+          oneOf:
+          - $ref: '#/components/schemas/InstantUtc'
+          - type: 'null'
+        pickupPhotoPath:
+          type:
+          - string
+          - 'null'
+          format: uri-reference
+        deliveredAt:
+          oneOf:
+          - $ref: '#/components/schemas/InstantUtc'
+          - type: 'null'
+        deliveryProofType:
+          type:
+          - string
+          - 'null'
+          enum:
+          - PHOTO
+          - SIGNATURE
+          - null
+        deliveryProofPath:
+          type:
+          - string
+          - 'null'
+          format: uri-reference
+        failureReasonCode:
+          type:
+          - string
+          - 'null'
     ExternalRecipient:
       type: object
       additionalProperties: false
@@ -822,6 +1400,44 @@ components:
           type: string
           pattern: ^(?:05|5|\\+9665)[0-9]{8}$
           description: Saudi mobile; DropHub stores canonical +9665XXXXXXXX.
+    ExternalServiceability:
+      type: object
+      additionalProperties: false
+      required:
+      - serviceable
+      - evaluatedAt
+      properties:
+        serviceable:
+          type: boolean
+        unavailableReasonCode:
+          type:
+          - string
+          - 'null'
+          enum:
+          - PICKUP_UNAVAILABLE
+          - PICKUP_OUTSIDE_OPERATING_HOURS
+          - OUTSIDE_MERCHANT_COVERAGE
+          - NO_PROVIDER_AVAILABLE
+          - null
+        evaluatedAt:
+          $ref: '#/components/schemas/InstantUtc'
+        coverageZoneVersionId:
+          oneOf:
+          - $ref: '#/components/schemas/Uuid'
+          - type: 'null'
+    ExternalServiceabilityRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - pickup
+      - destination
+      properties:
+        pickup:
+          $ref: '#/components/schemas/ExternalPickup'
+        destination:
+          $ref: '#/components/schemas/ExternalCoordinate'
+        pickupWindow:
+          $ref: '#/components/schemas/ExternalPickupWindow'
     ExternalShipment:
       type: object
       additionalProperties: false
@@ -848,17 +1464,47 @@ components:
           - 'null'
           format: decimal
           minimum: 0
-        deliveryFeeAmount: { type: [number, 'null'], format: decimal, minimum: 0 }
-        deliveryFeeCurrency: { type: [string, 'null'], example: SAR }
+        deliveryFeeAmount:
+          type:
+          - number
+          - 'null'
+          format: decimal
+          minimum: 0
+        deliveryFeeCurrency:
+          type:
+          - string
+          - 'null'
+          example: SAR
         eta:
           oneOf:
           - $ref: '#/components/schemas/LiveEta'
           - type: 'null'
-        proofAvailable: { type: boolean }
-        proofType: { type: [string, 'null'], enum: [PHOTO, SIGNATURE, null] }
-        deliveredAt: { type: [string, 'null'], format: date-time }
-        failureReasonCode: { type: [string, 'null'] }
-        cancellationReasonCode: { type: [string, 'null'] }
+        proofAvailable:
+          type: boolean
+        proofType:
+          type:
+          - string
+          - 'null'
+          enum:
+          - PHOTO
+          - SIGNATURE
+          - null
+        deliveredAt:
+          oneOf:
+          - $ref: '#/components/schemas/InstantUtc'
+          - type: 'null'
+        failureReasonCode:
+          type:
+          - string
+          - 'null'
+        cancellationReasonCode:
+          type:
+          - string
+          - 'null'
+        driver:
+          oneOf:
+          - $ref: '#/components/schemas/ExternalAssignedDriver'
+          - type: 'null'
         createdAt:
           $ref: '#/components/schemas/InstantUtc'
         version:
@@ -873,6 +1519,18 @@ components:
           type: string
           pattern: ^[A-Z][A-Z0-9_]{1,47}$
           default: MERCHANT_REQUESTED
+    ExternalShipmentChangeRequest:
+      type: object
+      additionalProperties: false
+      description: Include destination, recipient, pickupWindow, or any combination. Absent parts are
+        not changed.
+      properties:
+        destination:
+          $ref: '#/components/schemas/ExternalCoordinate'
+        recipient:
+          $ref: '#/components/schemas/ExternalRecipient'
+        pickupWindow:
+          $ref: '#/components/schemas/ExternalPickupWindow'
     ExternalShipmentRequest:
       type: object
       additionalProperties: false
@@ -903,6 +1561,9 @@ components:
           description: Omit for prepaid shipments; currency is SAR.
         pickupWindow:
           $ref: '#/components/schemas/ExternalPickupWindow'
+        quoteId:
+          description: A quote from POST /api/v2/external/quotes; the shipment is then charged its price.
+          $ref: '#/components/schemas/Uuid'
     ExternalShipmentStatus:
       type: string
       enum:
@@ -912,7 +1573,10 @@ components:
       - OUT_FOR_DELIVERY
       - DELIVERED
       - FAILED
+      - NO_DRIVER_AVAILABLE
       - CANCELLED
+      description: ASSIGNED covers an offer awaiting the driver's acceptance and an accepted one. NO_DRIVER_AVAILABLE
+        means the bounded driver search ended without a driver; the shipment can still be cancelled.
     ExternalTracking:
       type: object
       additionalProperties: false
@@ -955,6 +1619,10 @@ components:
         eta:
           oneOf:
           - $ref: '#/components/schemas/LiveEta'
+          - type: 'null'
+        driver:
+          oneOf:
+          - $ref: '#/components/schemas/ExternalAssignedDriver'
           - type: 'null'
     ExternalTrackingStep:
       type: object
@@ -1016,6 +1684,15 @@ components:
       - shipment.delivered
       - shipment.failed
       - shipment.cancelled
+      - shipment.no_driver_available
+      - shipment.updated
+      - shipment.eta_updated
+      description: 'shipment.eta_updated carries data.eta {target: PICKUP|DELIVERY, estimatedArrivalAt};
+        it is sent when a driver leg gets its first estimate and whenever the estimate moves by at least
+        the platform setting dispatch.tracking.eta-notify-threshold (default 5 minutes). shipment.updated
+        is sent when the merchant changes the destination or recipient through PATCH /api/v2/external/shipments/{shipmentId};
+        lifecycleState is unchanged. An endpoint created without an explicit list subscribes to every
+        type; existing endpoints keep the list they were created with.'
     ExternalWebhookPatch:
       type: object
       additionalProperties: false
@@ -1065,30 +1742,45 @@ components:
           type: string
           pattern: ^[A-Za-z0-9_-]{43}$
           writeOnly: true
-          x-sensitive: true
           description: Base64URL-encoded 32-byte HMAC-SHA256 secret, returned on create or rotation.
     InstantUtc:
       type: string
       format: date-time
-      x-java-type: java.time.Instant
-      x-postgresql-type: timestamptz(6)
-      x-time-semantics: UTC-instant
     Latitude:
       type: number
       minimum: -90
       maximum: 90
       multipleOf: 1.0e-06
-      x-java-type: java.math.BigDecimal
-      x-postgresql-type: numeric(9,6)
-      x-unit: decimal-degrees
+    LiveEta:
+      type: object
+      additionalProperties: false
+      required:
+      - target
+      - estimatedArrivalAt
+      - estimatedMinutes
+      - calculatedAt
+      - distanceMetres
+      properties:
+        target:
+          type: string
+          enum:
+          - PICKUP
+          - DELIVERY
+        estimatedArrivalAt:
+          $ref: '#/components/schemas/InstantUtc'
+        estimatedMinutes:
+          type: integer
+          format: int64
+        calculatedAt:
+          $ref: '#/components/schemas/InstantUtc'
+        distanceMetres:
+          type: integer
+          format: int64
     Longitude:
       type: number
       minimum: -180
       maximum: 180
       multipleOf: 1.0e-06
-      x-java-type: java.math.BigDecimal
-      x-postgresql-type: numeric(10,6)
-      x-unit: decimal-degrees
     Problem:
       type: object
       description: RFC 9457 Problem Details with stable DropHub extensions
@@ -1131,20 +1823,17 @@ components:
         requestId:
           type: string
           format: uuid
-        traceId:
-          type: string
-          pattern: ^[0-9a-f]{32}$
         violations:
           type: array
           maxItems: 20
           items:
             $ref: '#/components/schemas/Violation'
       example:
-        type: https://api.drop-hub.com/problems/access-denied
+        type: https://api.drophub.example/problems/access-denied
         title: Access denied
         status: 403
         detail: Access to this resource is denied.
-        instance: /v2/external/shipments/018f2d8a-1f00-7000-8000-000000000206
+        instance: /api/v2/external/shipments/018f2d8a-1f00-7000-8000-000000000206
         code: ACCESS_DENIED
         timestamp: '2026-08-22T18:30:00Z'
         correlationId: 018f2d8a-1f00-7000-8000-000000000207
@@ -1183,6 +1872,182 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ExternalTrackingStep'
+    SandboxDeliveryFailureRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - reason
+      properties:
+        reason:
+          type: string
+          pattern: ^[A-Z][A-Z0-9_]{1,47}$
+          example: CUSTOMER_UNREACHABLE
+    SandboxFixtureCoordinate:
+      type: object
+      additionalProperties: false
+      required:
+      - latitude
+      - longitude
+      properties:
+        latitude:
+          $ref: '#/components/schemas/Latitude'
+        longitude:
+          $ref: '#/components/schemas/Longitude'
+    SandboxReadiness:
+      type: object
+      additionalProperties: false
+      required:
+      - generation
+      - canCreateShipment
+      - nextShipmentDispatchHeld
+      - branchCode
+      - pickupLocationCode
+      - pickup
+      - delivery
+      - destinationCityCode
+      - sandboxDriverPhone
+      - prerequisites
+      properties:
+        generation:
+          type: integer
+          minimum: 1
+        canCreateShipment:
+          type: boolean
+        nextShipmentDispatchHeld:
+          type: boolean
+          description: True when the next sandbox shipment will remain before any driver offer; consumed
+            atomically by that creation.
+        branchCode:
+          type: string
+          const: SANDBOX_BRANCH
+        pickupLocationCode:
+          type: string
+          const: SANDBOX_PICKUP
+        pickup:
+          $ref: '#/components/schemas/SandboxFixtureCoordinate'
+        delivery:
+          $ref: '#/components/schemas/SandboxFixtureCoordinate'
+        destinationCityCode:
+          type: string
+          const: SANDBOX_RUH
+          description: Derived fixture coverage context; shipment requests need only coordinates.
+        sandboxDriverPhone:
+          type: string
+          pattern: ^05[0-9]{8}$
+          description: Sandbox-only driver OTP identity used to progress the real canonical driver lifecycle.
+        prerequisites:
+          type: array
+          items:
+            $ref: '#/components/schemas/SandboxReadinessItem'
+    SandboxReadinessItem:
+      type: object
+      additionalProperties: false
+      required:
+      - prerequisite
+      - ready
+      properties:
+        prerequisite:
+          type: string
+          enum:
+          - merchant
+          - branch
+          - pickupLocation
+          - coverage
+          - commercialTerms
+          - eligibleCarrier
+          - dispatchableDriver
+          - freshCanonicalLocation
+          - routingCoordinates
+        ready:
+          type: boolean
+    ShipmentPriceEstimate:
+      type: object
+      additionalProperties: false
+      required:
+      - distanceMetres
+      - durationSeconds
+      - price
+      - routeGeometry
+      - routeGeometryFormat
+      properties:
+        distanceMetres:
+          type: integer
+          format: int64
+          minimum: 0
+        durationSeconds:
+          type: integer
+          format: int64
+          minimum: 0
+        price:
+          type: object
+          additionalProperties: false
+          required:
+          - amount
+          - currency
+          properties:
+            amount:
+              type: number
+            currency:
+              type: string
+              example: SAR
+        routeGeometry:
+          type: string
+        routeGeometryFormat:
+          type: string
+        quoteId:
+          description: Present only on POST /api/v2/external/quotes; null on non-binding estimates.
+          oneOf:
+          - $ref: '#/components/schemas/Uuid'
+          - type: 'null'
+        expiresAt:
+          description: When the quoteId stops being accepted at shipment creation.
+          oneOf:
+          - $ref: '#/components/schemas/InstantUtc'
+          - type: 'null'
+    ShipmentPriceEstimateRequest:
+      type: object
+      additionalProperties: false
+      description: The pickup is a saved branch and pickup location, or an exact pickup point; a point,
+        when given, is what the route is measured from.
+      required:
+      - merchantId
+      - destinationLatitude
+      - destinationLongitude
+      properties:
+        merchantId:
+          type: string
+          format: uuid
+        branchId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        pickupLocationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        destinationLatitude:
+          type: number
+          minimum: -90
+          maximum: 90
+        destinationLongitude:
+          type: number
+          minimum: -180
+          maximum: 180
+        pickupLatitude:
+          type:
+          - number
+          - 'null'
+          minimum: -90
+          maximum: 90
+          description: The exact pickup point, when one was chosen; the location's own otherwise.
+        pickupLongitude:
+          type:
+          - number
+          - 'null'
+          minimum: -180
+          maximum: 180
     Uuid:
       type: string
       format: uuid
@@ -1203,14 +2068,16 @@ components:
         message:
           type: string
           maxLength: 256
-  headers:
-    EntityTag:
-      description: Strong numeric entity version for the next state-changing request.
-      schema:
-        type: string
-        pattern: ^"[0-9]+"$
-    WwwAuthenticate:
-      description: Bearer challenge for an unauthenticated or invalid-token request.
-      schema:
-        type: string
-        example: Bearer
+  securitySchemes:
+    oauthClientCredentials:
+      type: oauth2
+      description: OAuth 2.0 client-credentials flow for external machine-to-machine integrations.
+      flows:
+        clientCredentials:
+          tokenUrl: /api/v2/oauth/token
+          scopes:
+            quotes:write: Calculate shipment quotes without creating shipments
+            shipments:read: Read Merchant-owned shipments
+            shipments:write: Create and cancel Merchant-owned shipments
+            tracking:read: Read merchant-owned shipment tracking projections
+            webhooks:manage: Configure and rotate the merchant's single signed shipment webhook

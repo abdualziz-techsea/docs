@@ -1,0 +1,64 @@
+---
+title: "Sandbox"
+description: "Set up a test account in one call and drive shipments through every outcome."
+---
+
+These controls exist only on `https://api-test.drop-hub.com` with sandbox credentials. In production they answer `404 SANDBOX_ONLY`. They require `shipments:write` (a `shipments:read`-only token gets `403`).
+
+A sandbox driver accepts, collects, and delivers each shipment on its own — a delivery takes a few minutes.
+
+## Bootstrap
+
+```bash
+curl -X POST "$BASE_URL/api/v2/external/sandbox/bootstrap" -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+Creates the sandbox branch, the pickup location `SANDBOX_PICKUP`, coverage, pricing, and a sandbox driver. Safe to repeat. `GET /api/v2/external/sandbox/readiness` returns the same object without changing anything:
+
+```json
+{
+  "generation": 1,
+  "canCreateShipment": true,
+  "nextShipmentDispatchHeld": false,
+  "branchCode": "SANDBOX_BRANCH",
+  "pickupLocationCode": "SANDBOX_PICKUP",
+  "pickup": { "latitude": 24.713600, "longitude": 46.675300 },
+  "delivery": { "latitude": 24.774265, "longitude": 46.738586 },
+  "destinationCityCode": "RUH",
+  "sandboxDriverPhone": "…",
+  "prerequisites": [ { "prerequisite": "merchant", "ready": true }, … ]
+}
+```
+
+`delivery` is a destination that works out of the box.
+
+## Hold the next dispatch
+
+```bash
+curl -X POST "$BASE_URL/api/v2/external/sandbox/dispatch-holds" -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+The next shipment you create stays `CREATED`, so you can test changes and cancellation before a driver accepts.
+
+## Fail a delivery
+
+```bash
+curl -X POST "$BASE_URL/api/v2/external/sandbox/shipments/$SHIPMENT_ID/delivery-failures" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"CUSTOMER_UNAVAILABLE"}'
+```
+
+The sandbox driver reports a failed delivery from the drop-off point. The shipment must be carried by the sandbox driver (picked up or out for delivery); otherwise `409 SANDBOX_DRIVER_NOT_CARRYING_SHIPMENT`. The result is `FAILED`, a `shipment.failed` event, and a `DELIVERY_FAILED` incident. Read the shipment for `failureReasonCode` — the response to this call currently leaves it `null`.
+
+## Reset
+
+```bash
+curl -X POST "$BASE_URL/api/v2/external/sandbox/reset" -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+Clears the sandbox state and increments `generation`.
+
+<Warning>
+  Reset currently fails with `500` while a webhook is configured. Pause your webhook rather than relying on reset until this is fixed.
+</Warning>

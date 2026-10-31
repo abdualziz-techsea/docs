@@ -1,40 +1,106 @@
 ---
-title: "Price and availability"
-description: "Check a current delivery price and serviceability before checkout."
+title: "Locations, quotes, and availability"
+description: "Where you ship from, where DropHub delivers, what it costs, and whether it can be served now."
 ---
 
-Both calls require `quotes:write` and your merchant OAuth token.
-
-## Current price estimate
+## Pickup locations
 
 ```bash
-curl -X POST "$BASE_URL/v2/external/quotes" \
+curl "$BASE_URL/api/v2/external/pickup-locations?limit=20" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+Requires `shipments:read`. `limit` is 1–100; follow `nextCursor` with `cursor`. Captured on the sandbox (hours shortened):
+
+```json
+{
+  "items": [
+    {
+      "pickupLocationId": "8cf2088f-e1c1-3bc6-a971-c4380b4447e2",
+      "merchantId": "01a1933b-ce3e-7876-8891-ed6de2671aaa",
+      "branchId": "de252e36-4d90-38cb-a101-dd08f5a1ccbd",
+      "code": "SANDBOX_PICKUP",
+      "name": "Sandbox Pickup",
+      "cityCode": "RUH",
+      "latitude": 24.713600,
+      "longitude": 46.675300,
+      "status": "ACTIVE",
+      "timezone": "Asia/Riyadh",
+      "openingHours": [
+        { "dayOfWeek": 1, "opensAt": "00:00:00", "closesAt": "23:59:59" }
+      ],
+      "pickupWaves": [ { "waveTime": "09:00:00", "label": "Sandbox" } ]
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+`code` is the value for `pickup.savedLocationCode`. Hours are local to `timezone`; `dayOfWeek` 1 is Monday. An empty `openingHours` means the location can be collected at any time.
+
+## Coverage areas
+
+```bash
+curl "$BASE_URL/api/v2/external/coverage/areas" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+Requires `quotes:write`. `scope` is `UNRESTRICTED` (no limit), `AREAS` (only the listed `cities`), or `NONE`. Each city has `cityId`, `cityCode`, `nameAr`, `nameEn`, `wholeCity`, and `districts` when only part of the city is served. No delivery company is named.
+
+```json
+{ "scope": "AREAS", "cities": [ { "cityId": "ea59d6f2-6e99-4918-81ed-d008d544429b", "cityCode": "RUH", "nameAr": "الرياض", "nameEn": "Riyadh", "districts": [], "wholeCity": true } ] }
+```
+
+## Quotes
+
+```bash
+curl -X POST "$BASE_URL/api/v2/external/quotes" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "merchantId": "0198f7c0-7f51-7000-8000-0000000000a0",
-    "pickupLatitude": 24.713600,
-    "pickupLongitude": 46.675300,
+    "merchantId": "01a1933b-ce3e-7876-8891-ed6de2671aaa",
+    "branchId": "de252e36-4d90-38cb-a101-dd08f5a1ccbd",
+    "pickupLocationId": "8cf2088f-e1c1-3bc6-a971-c4380b4447e2",
     "destinationLatitude": 24.774265,
     "destinationLongitude": 46.738586
   }'
 ```
 
-The response includes `price.amount`, `price.currency`, `distanceMetres`, `durationSeconds`, and route geometry. `durationSeconds` is road travel time. This estimate has no quote ID or expiry and does not guarantee the price of a later shipment. Shipment creation measures and prices the route again; read its frozen `deliveryFeeAmount` for the charge.
+Requires `quotes:write`. `merchantId`, `destinationLatitude`, and `destinationLongitude` are required; use the `merchantId`, `branchId`, and `pickupLocationId` of the location you ship from. Captured on the sandbox (route geometry shortened):
 
-## Current serviceability
+```json
+{
+  "distanceMetres": 13582,
+  "durationSeconds": 837,
+  "price": { "amount": 34.00, "currency": "SAR" },
+  "routeGeometry": "{xkcn@yty_xA??dBxF_EzAu@ViEvAgZ…",
+  "routeGeometryFormat": "POLYLINE6",
+  "quoteId": "01a1933c-6c58-7580-8350-b50eb335b33d",
+  "expiresAt": "2026-10-31T18:47:53.080964Z"
+}
+```
+
+The quote is binding for **15 minutes**: create the shipment with this `quoteId`, from the same location to the same destination, before `expiresAt`, and its `deliveryFeeAmount` is exactly `price.amount`, even if the tariff changes in between. One quote prices one shipment. Without `quoteId`, the shipment is priced at creation.
+
+`durationSeconds` is road travel time, not a delivery promise. A quote does not check coverage — use serviceability for that.
+
+## Serviceability
 
 ```bash
-curl -X POST "$BASE_URL/v2/external/serviceability" \
+curl -X POST "$BASE_URL/api/v2/external/serviceability" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "pickup": { "savedLocationCode": "MAIN" },
+    "pickup": { "savedLocationCode": "SANDBOX_PICKUP" },
     "destination": { "latitude": 24.774265, "longitude": 46.738586 },
-    "pickupWindow": { "start": "2026-10-26T09:00:00Z", "end": "2026-10-26T10:00:00Z" }
+    "pickupWindow": { "start": "2026-11-01T07:00:00Z", "end": "2026-11-01T08:00:00Z" }
   }'
 ```
 
-You may use a pickup coordinate instead of `savedLocationCode`. The response contains `serviceable`, `evaluatedAt`, `unavailableReasonCode`, and `coverageZoneVersionId` when a published matching zone has a version. An unavailable reason is one of `PICKUP_UNAVAILABLE`, `PICKUP_OUTSIDE_OPERATING_HOURS`, `OUTSIDE_MERCHANT_COVERAGE`, or `NO_PROVIDER_AVAILABLE`.
+Requires `quotes:write`. `pickupWindow` is optional. The answer is always `200` for a valid request:
 
-This checks the saved pickup, its hours, merchant coverage, and current carrier eligibility. It does not reserve a driver. Shipment creation can accept an order while no driver is online and queue it for dispatch, so use this result to decide checkout availability rather than assuming it is a creation precondition.
+```json
+{ "serviceable": true, "unavailableReasonCode": null, "evaluatedAt": "2026-10-31T18:39:23.915856Z", "coverageZoneVersionId": "34587cde-129a-3edd-9ccc-ec2df14912b6" }
+```
+
+When `serviceable` is `false`, `unavailableReasonCode` is `PICKUP_UNAVAILABLE`, `PICKUP_OUTSIDE_OPERATING_HOURS`, `OUTSIDE_MERCHANT_COVERAGE`, or `NO_PROVIDER_AVAILABLE`. This is a point-in-time check; it reserves no driver and no price.

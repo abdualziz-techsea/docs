@@ -3,48 +3,45 @@ title: "Cancellation"
 description: "Calling a shipment back, and when it is too late."
 ---
 
-A shipment can be cancelled **until physical pickup**, including after driver assignment. Cancellation withdraws active driver offers.
+A shipment can be cancelled **until physical pickup**, including after a driver accepted it and when no driver was found (`NO_DRIVER_AVAILABLE`).
 
 ```bash
-curl -X POST "$BASE_URL/v2/external/shipments/$SHIPMENT_ID/cancel" \
-  -H "Authorization: Bearer $ACCESS_TOKEN"
-```
-
-Requires `shipments:write`. The body is optional; the response is the shipment, now `CANCELLED`, with `cancellationReasonCode`.
-
-## The reason
-
-Send one if you have something more specific to record:
-
-```bash
-curl -X POST "$BASE_URL/v2/external/shipments/$SHIPMENT_ID/cancel" \
+curl -X POST "$BASE_URL/api/v2/external/shipments/$SHIPMENT_ID/cancel" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"reason":"CUSTOMER_REQUESTED"}'
+  -d '{"reason":"CUSTOMER_CHANGED_MIND"}'
 ```
 
-`reason` is an uppercase machine code matching `^[A-Z][A-Z0-9_]{1,47}$` — a stable value both systems can reason about, not free text for a human to read. It defaults to `MERCHANT_REQUESTED`.
+Requires `shipments:write`. The body is optional; `reason` matches `^[A-Z][A-Z0-9_]{1,47}$` and defaults to `MERCHANT_REQUESTED`. The response is `200` with the shipment, now `CANCELLED`, with `cancellationReasonCode` and the frozen `deliveryFeeAmount`. Cancelling an already-cancelled shipment returns the same `200`.
 
 ## When it is refused
 
 <AccordionGroup>
-  <Accordion title="409 — pickup has happened">
-    The parcel has been picked up or the shipment is terminal. `SHIPMENT_RETURN_REQUIRED` means the original delivery and custody history remain intact; arrange a separate return shipment. Read the shipment back to see its current status.
+  <Accordion title="409 SHIPMENT_RETURN_REQUIRED — the parcel was picked up">
+    Captured on the sandbox:
+
+    ```json
+    {
+      "detail": "The parcel has already been picked up. Create a return shipment instead of cancelling it.",
+      "status": 409,
+      "title": "External MerchantStore operation rejected",
+      "code": "SHIPMENT_RETURN_REQUIRED",
+      "nextAction": "Create a return shipment instead of cancelling the shipment."
+    }
+    ```
+
+    The delivery and custody history stay intact. With `Accept-Language: ar`, `title`, `detail`, and `nextAction` are Arabic.
   </Accordion>
 
-  <Accordion title="422 — the reason is malformed">
-    `reason` did not match the pattern. The `violations` array names the offending field.
+  <Accordion title="422 VALIDATION_FAILED — the reason is malformed">
+    `reason` did not match the pattern.
   </Accordion>
 
-  <Accordion title="404 — no such shipment for this credential">
+  <Accordion title="404 RESOURCE_NOT_FOUND — no such shipment for this credential">
     The shipment does not exist, or it belongs to another merchant.
   </Accordion>
 </AccordionGroup>
 
-<Tip>
-  Cancellation racing pickup can return `409`. Re-read the shipment and report its current status.
-</Tip>
-
 ## Retrying safely
 
-Cancellation is idempotent on the shipment id, so an uncertain retry replays the original outcome rather than attempting a second cancellation. You do not need to send an `Idempotency-Key`; see [Idempotency and ETags](/idempotency-and-etags) if you want to supply your own.
+Send an `Idempotency-Key` (16–128 characters) to make a retry return the original outcome; see [Idempotency and ETags](/idempotency-and-etags).
