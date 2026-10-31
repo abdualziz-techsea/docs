@@ -1,72 +1,39 @@
 ---
 title: "Idempotency and ETags"
-description: "Safe retries on writes, and safe concurrent changes to your webhook."
+description: "Safe retries on writes, and safe concurrent changes."
 ---
 
-Two different problems, two different mechanisms. Idempotency makes a **retry** safe. `If-Match` makes a **concurrent change** safe.
+Idempotency makes a **retry** safe. `If-Match` makes a **concurrent change** safe.
 
 ## Idempotency
 
-Retry safety is handled for you. DropHub derives the key from a value you already send:
-
-| Operation | Derived key |
+| Operation | Key |
 | --- | --- |
-| `POST /v2/external/shipments` | Your `reference` — the order number |
-| `POST /v2/external/shipments/{id}/cancel` | The shipment id |
+| `POST /api/v2/external/shipments` | `Idempotency-Key` if sent, otherwise your `reference` |
+| `POST /api/v2/external/shipments/{id}/cancel` | `Idempotency-Key` if sent |
 
-Keys are scoped to your merchant account, so two calls naming the same order are one submission.
-
-### Replay semantics
+Keys are scoped to your merchant account.
 
 | Situation | Result |
 | --- | --- |
-| Same order, same request | The original result — `200` rather than `201` on create |
-| Same order, different request | `409` |
-| A different order | A new request, and a new shipment |
+| Same key, same request | The original result — `200` rather than `201` on create |
+| Same key, different request | `409 IDEMPOTENCY_KEY_REUSED` |
+| A different key | A new request |
 
-<Warning>
-  Reusing an order number with a changed payload is a conflict, not an update. If you genuinely want a different shipment, give it a different `reference`.
-</Warning>
-
-### Bringing your own key
-
-Send `Idempotency-Key` only if you want to control the replay window yourself. An explicit key always wins over the derived one.
-
-```bash
--H "Idempotency-Key: create-shipment-ORDER-1042"
-```
-
-The key is **16–128 characters**. Derive it from the business intent that must happen at most once — do not generate a fresh random key on each retry, which is precisely the case idempotency exists to prevent.
+`Idempotency-Key` must be **16–128 characters**; a shorter one is refused with `422 VALIDATION_FAILED`. Derive it from the business intent that must happen at most once — never generate a fresh random key per retry.
 
 ## ETags and If-Match
 
-Your webhook carries a **strong numeric entity tag** matching `^"[0-9]+"$`, quotes included. It is the endpoint's `version` in ETag form.
+Shipments and your webhook carry a strong numeric ETag, `"<version>"`, quotes included. The same number is the `version` field. A conditional request is required for:
 
-A conditional request is required for all three ways of changing it:
-
-- `PATCH /v2/external/webhook`
-- `DELETE /v2/external/webhook`
-- `POST /v2/external/webhook/secret-rotations`
-
-```bash
-curl -X PATCH "$BASE_URL/v2/external/webhook" \
-  -H "Authorization: Bearer $ACCESS_TOKEN" \
-  -H "If-Match: \"7\"" \
-  -H "Content-Type: application/json" \
-  -d '{"status":"PAUSED"}'
-```
-
-### The two failure modes
+- `PATCH /api/v2/external/shipments/{id}`
+- `PATCH /api/v2/external/webhook`
+- `DELETE /api/v2/external/webhook`
+- `POST /api/v2/external/webhook/secret-rotations`
 
 | Status | Meaning | What to do |
 | --- | --- | --- |
-| `428 Precondition Required` | You sent no `If-Match` | Read the webhook, then retry with its ETag |
-| `412 Precondition Failed` | Your ETag is stale — something else changed it | Re-read, reconcile, retry |
+| `428 PRECONDITION_REQUIRED` | No `If-Match` | Read the resource, then retry with its ETag |
+| `412 PRECONDITION_FAILED` | Your ETag is stale | Re-read, decide whether your change still makes sense, then retry |
 
-<Tip>
-  Never work around a `412` by fetching the current ETag and immediately resubmitting the same change. That defeats the check. Re-read, decide whether your change still makes sense against the new state, and only then retry.
-</Tip>
-
-### Reading the current tag
-
-The `ETag` comes back on the representation you read **and** on the response to a successful change — so a sequence of updates can use each response's tag for the next call without an extra `GET`.
+The `ETag` comes back on reads and on every successful change, so a sequence of changes can chain without an extra `GET`. A shipment's version also advances as it moves through its lifecycle, so read it shortly before you change it.

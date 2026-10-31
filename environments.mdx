@@ -3,40 +3,38 @@ title: "Environments"
 description: "Two deployments, two sets of credentials, one contract."
 ---
 
-DropHub publishes two deployments. They share one contract and share nothing else — data, credentials, and webhook secrets are separate.
+DropHub publishes two deployments. They share one contract and nothing else — data, credentials, and webhook secrets are separate.
 
 | Environment | Base URL | Purpose |
 | --- | --- | --- |
-| Sandbox | `https://api-test.drop-hub.com` | Integration work. Isolated data and credentials. |
-| Production | `https://api.drop-hub.com` | Live traffic. Production credentials only. |
+| Sandbox | `https://api-test.drop-hub.com` | Integration work. Isolated data and credentials, a simulated driver, and the [sandbox controls](/sandbox). |
+| Production | `https://api.drop-hub.com` | Live traffic. Production credentials only. Sandbox controls answer `404 SANDBOX_ONLY`. |
 
 <Warning>
-  A production credential is never valid against the sandbox, and a sandbox credential is never valid against production. Keep them in separate secret stores so one cannot be reached from the other's configuration.
+  A production credential is never valid against the sandbox, and a sandbox credential is never valid against production. Keep them in separate secret stores.
 </Warning>
 
 ## Prerequisites
 
-Before your first call you need exactly two things:
-
 - **A merchant account on the environment you are calling.**
 - **An API credential for it** — a `client_id` and `client_secret`, issued from the DropHub console.
-
-That is the whole list. There are no branch codes, pickup-location codes, coverage zones, carrier accounts, or price lists to set up first.
+- **A saved pickup location.** On the sandbox, `POST /api/v2/external/sandbox/bootstrap` creates `SANDBOX_PICKUP` for you.
 
 ## Every request
+
+Every path starts with `/api/v2`:
 
 ```bash
 BASE_URL="https://api-test.drop-hub.com"
 
-curl "$BASE_URL/v2/external/shipments/$SHIPMENT_ID" \
-  -H "Authorization: Bearer $ACCESS_TOKEN" \
-  -H "Accept: application/json"
+curl "$BASE_URL/api/v2/external/shipments/$SHIPMENT_ID" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-Writes also send `Content-Type: application/json`.
+Writes also send `Content-Type: application/json`. Unknown JSON properties are rejected with `400 MALFORMED_JSON`.
 
-`Accept-Language` is optional and selects a localized representation where one exists. Machine error codes never change with language; only human-readable text does.
+`Accept-Language: ar` selects Arabic text where a localized message exists. Machine error codes never change with language.
 
 <Info>
-  `GET /v2/public/tracking/{code}` is the one endpoint with no `Authorization` header — it is the link your customer opens. Everything under `/v2/external` requires a bearer token.
+  `GET /api/v2/public/tracking/{code}` is the one endpoint with no `Authorization` header — it is the link your customer opens. Everything under `/api/v2/external` requires a bearer token.
 </Info>

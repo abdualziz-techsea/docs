@@ -27,7 +27,8 @@
         "pages": [
           "quickstart",
           "overview",
-          "environments"
+          "environments",
+          "sandbox"
         ]
       },
       {
@@ -40,6 +41,7 @@
         "group": "Shipments",
         "pages": [
           "shipments",
+          "availability",
           "tracking",
           "cancellation"
         ]

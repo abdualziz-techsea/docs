@@ -1,92 +1,100 @@
 ---
 title: "Quickstart"
-description: "From client credentials to a tracked shipment in four calls."
+description: "From client credentials to a tracked shipment."
 ---
 
-You need a `client_id` and `client_secret` for your merchant account. They are issued from the DropHub console — a credential cannot mint its successor, so there is no API for creating one.
+You need a `client_id` and `client_secret` for your merchant account. They are issued from the DropHub console. On the sandbox, run [Sandbox bootstrap](/sandbox) once first so your account has a pickup location, pricing, and a sandbox driver.
 
 <Steps>
   <Step title="Get a token">
     ```bash
     BASE_URL="https://api-test.drop-hub.com"
-    
-    ACCESS_TOKEN=$(curl -s -X POST "$BASE_URL/oauth/token" \
+
+    ACCESS_TOKEN=$(curl -s -X POST "$BASE_URL/api/v2/oauth/token" \
       -u "$CLIENT_ID:$CLIENT_SECRET" \
-      -H "Content-Type: application/x-www-form-urlencoded" \
       -d grant_type=client_credentials | jq -r .access_token)
     ```
 
-    The token is a short-lived JWT. Cache it and reuse it until shortly before `expires_in` elapses — see [Authentication](/authentication).
+    The token lasts 15 minutes (`expires_in: 900`). Cache it and reuse it — see [Authentication](/authentication).
   </Step>
-  <Step title="Create a shipment">
-    An order reference, where to collect, where to deliver, and who receives it. Nothing else is required.
+  <Step title="Quote (optional)">
+    Use the ids of the pickup location you ship from (`GET /api/v2/external/pickup-locations`).
 
     ```bash
-    curl -s -X POST "$BASE_URL/v2/external/shipments" \
+    curl -s -X POST "$BASE_URL/api/v2/external/quotes" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+            "merchantId": "'$MERCHANT_ID'", "branchId": "'$BRANCH_ID'", "pickupLocationId": "'$PICKUP_LOCATION_ID'",
+            "destinationLatitude": 24.774265, "destinationLongitude": 46.738586
+          }'
+    ```
+
+    The response carries `price`, `quoteId`, and `expiresAt` (15 minutes). Pass `quoteId` when you create the shipment and you are charged exactly that price.
+  </Step>
+  <Step title="Create a shipment">
+    ```bash
+    curl -s -X POST "$BASE_URL/api/v2/external/shipments" \
       -H "Authorization: Bearer $ACCESS_TOKEN" \
       -H "Content-Type: application/json" \
       -d '{
             "reference": "ORDER-1042",
-            "pickup":      { "latitude": 24.7136,   "longitude": 46.6753 },
+            "pickup":      { "savedLocationCode": "SANDBOX_PICKUP" },
             "destination": { "latitude": 24.774265, "longitude": 46.738586 },
-            "recipient":   { "name": "Noura", "mobile": "0551234567" }
+            "recipient":   { "name": "Noura", "mobile": "0551234567" },
+            "quoteId":     "'$QUOTE_ID'"
           }' > shipment.json
-    
+
     SHIPMENT_ID=$(jq -r .id shipment.json)
     ```
 
-    `201` means created. `200` means DropHub already had this order and you are seeing the original shipment — your `reference` is the idempotency key.
+    `201` means created; `200` means DropHub already had this order and returns the original shipment. A response captured on the sandbox:
 
     ```json
     {
-      "id": "0198f7c0-7f51-7000-8000-000000000001",
-      "reference": "ORDER-1042",
+      "id": "01a1933c-72ef-745d-af3d-eb836db7878c",
+      "reference": "AT-1793471573-1",
       "status": "CREATED",
-      "trackingUrl": "/track/jhJ4hVsHM7APbKpYKg3f7w4m2fC0ZLDm7KqTKi2B1zA",
+      "trackingUrl": "/track/<tracking-code>",
       "codAmount": null,
-      "createdAt": "2026-08-27T06:00:00Z",
-      "version": 1
+      "deliveryFeeAmount": 34.00,
+      "deliveryFeeCurrency": "SAR",
+      "eta": null,
+      "proofAvailable": false,
+      "proofType": null,
+      "deliveredAt": null,
+      "failureReasonCode": null,
+      "cancellationReasonCode": null,
+      "driver": null,
+      "createdAt": "2026-10-31T18:32:54.767375Z",
+      "version": 0
     }
     ```
 
-    `trackingUrl` is the customer-facing link. It is minted automatically — send it to your buyer.
+    `trackingUrl` is the customer-facing link — send it to your buyer.
   </Step>
   <Step title="Register a webhook">
-    Do this once, not per shipment. The signing secret is returned exactly once.
+    Do this once, not per shipment. The signing secret is returned on creation only.
 
     ```bash
-    curl -s -X POST "$BASE_URL/v2/external/webhook" \
+    curl -s -X POST "$BASE_URL/api/v2/external/webhook" \
       -H "Authorization: Bearer $ACCESS_TOKEN" \
       -H "Content-Type: application/json" \
       -d '{"url":"https://merchant.example/webhooks/drophub"}'
     ```
 
-    Omitting `events` subscribes you to all seven. Store `signingSecret` immediately — see [Webhooks](/webhooks) for how to verify a delivery.
+    Omitting `events` subscribes you to all ten. See [Webhooks](/webhooks) for verification.
   </Step>
   <Step title="Follow the shipment">
-    Webhooks are the primary mechanism. Poll only when you need a snapshot on demand:
-
     ```bash
-    curl -s "$BASE_URL/v2/external/shipments/$SHIPMENT_ID/tracking" \
+    curl -s "$BASE_URL/api/v2/external/shipments/$SHIPMENT_ID/tracking" \
       -H "Authorization: Bearer $ACCESS_TOKEN"
     ```
 
-    See [Tracking](/tracking) for `locationStatus` and the polling interval the server asks you to honour.
+    See [Tracking](/tracking) for `locationStatus`, `eta`, and the refresh interval.
   </Step>
 </Steps>
 
 <Tip>
-  Build against the sandbox at `https://api-test.drop-hub.com` and certify there before pointing at production. Credentials are not interchangeable between the two — see [Environments](/environments).
+  Build against the sandbox at `https://api-test.drop-hub.com` before pointing at production. Credentials are not interchangeable between the two — see [Environments](/environments).
 </Tip>
-
-## Next
-
-<CardGroup cols={2}>
-  <Card title="Shipments" icon="box" href="/shipments">
-    Parcel details, COD, saved pickups, and pickup windows.
-  </Card>
-
-  <Card title="Cancellation" icon="ban" href="/cancellation">
-    When a shipment can still be called back.
-  </Card>
-</CardGroup>

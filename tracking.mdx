@@ -8,85 +8,77 @@ There are two tracking views. Yours is authenticated and identifies the order. Y
 ## Your view
 
 ```bash
-curl "$BASE_URL/v2/external/shipments/$SHIPMENT_ID/tracking" \
+curl "$BASE_URL/api/v2/external/shipments/$SHIPMENT_ID/tracking" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-Requires `shipments:read`.
+Requires `tracking:read`. Captured on the sandbox:
 
 ```json
 {
-  "id": "0198f7c0-7f51-7000-8000-000000000001",
-  "reference": "ORDER-1042",
+  "id": "01a1933c-72ef-745d-af3d-eb836db7878c",
+  "reference": "AT-1793471573-1",
   "status": "OUT_FOR_DELIVERY",
   "driverLocation": {
-    "latitude": 24.7601,
-    "longitude": 46.7203,
-    "accuracyMetres": 12,
-    "recordedAt": "2026-08-27T08:41:12Z",
+    "latitude": 24.76069,
+    "longitude": 46.69400,
+    "accuracyMetres": 8.00,
+    "recordedAt": "2026-10-31T18:38:55.593234Z",
     "stale": false,
-    "ageSeconds": 8
+    "ageSeconds": 5
   },
   "locationStatus": "AVAILABLE",
   "recommendedRefreshSeconds": 15,
   "history": [
-    { "status": "CREATED",          "at": "2026-08-27T06:00:00Z" },
-    { "status": "ASSIGNED",         "at": "2026-08-27T06:04:31Z" },
-    { "status": "PICKED_UP",        "at": "2026-08-27T07:52:00Z" },
-    { "status": "OUT_FOR_DELIVERY", "at": "2026-08-27T08:10:44Z" }
-  ]
+    { "status": "CREATED", "at": "2026-10-31T18:32:54.767375Z" },
+    { "status": "ASSIGNED", "at": "2026-10-31T18:33:12.042301Z" },
+    { "status": "PICKED_UP", "at": "2026-10-31T18:37:05.829953Z" },
+    { "status": "OUT_FOR_DELIVERY", "at": "2026-10-31T18:37:11.585830Z" }
+  ],
+  "eta": {
+    "target": "DELIVERY",
+    "estimatedArrivalAt": "2026-10-31T18:45:21.609533Z",
+    "estimatedMinutes": 7,
+    "calculatedAt": "2026-10-31T18:38:55.609533Z",
+    "distanceMetres": 5739
+  },
+  "driver": { "firstName": "Sandbox", "vehicleType": "CAR", "vehiclePlate": "SBX AB43" }
 }
 ```
 
-`history` is the shipment's [public statuses](/shipments#status) in order, each with the instant it was reached.
+`history` lists the [statuses](/shipments#status) in order with the instant each was reached. `eta` follows the same rules as on the [shipment read](/shipments#read).
+
+<Warning>
+  `history` can currently contain a `CANCELLED` step recorded when a cancel request was **refused** after pickup. Use the top-level `status`, not the last history step, as the shipment's state.
+</Warning>
 
 ## The customer's view
 
-Every shipment gets a tracking URL at creation. You do not create, request, or revoke it — it comes back on the create response as `trackingUrl`, and it is the link to give your buyer.
+Every shipment gets a tracking URL at creation (`trackingUrl`). The last path segment is the code:
 
 ```bash
-curl "$BASE_URL/v2/public/tracking/jhJ4hVsHM7APbKpYKg3f7w4m2fC0ZLDm7KqTKi2B1zA"
+curl "$BASE_URL/api/v2/public/tracking/$TRACKING_CODE"
 ```
 
-No `Authorization` header. The 43-character code in the path is the credential, so the link is bearer-like: anyone holding it can see the shipment's progress.
-
-```json
-{
-  "status": "OUT_FOR_DELIVERY",
-  "driverLocation": { "latitude": 24.76, "longitude": 46.72, "recordedAt": "2026-08-27T08:41:12Z", "stale": false, "ageSeconds": 8 },
-  "locationStatus": "AVAILABLE",
-  "recommendedRefreshSeconds": 15,
-  "history": [ { "status": "CREATED", "at": "2026-08-27T06:00:00Z" } ]
-}
-```
-
-<Info>
-  The public view is deliberately thinner: coarse driver position only, and no order reference, shipment id, merchant, recipient, pickup, or destination. Responses are `no-store` and rate limited.
-</Info>
+No `Authorization` header — the 43-character code is the credential, so anyone holding the link can see progress. The view carries `status`, `driverLocation` (coarse), `locationStatus`, `recommendedRefreshSeconds`, and `history`, and no order reference, shipment id, merchant, recipient, pickup, or destination. Responses are `no-store` and rate limited; an unknown code answers `404 TRACKING_LINK_NOT_FOUND`.
 
 ## Location status
 
-`driverLocation` is `null` unless a position is genuinely available. `locationStatus` always says why:
+`driverLocation` is `null` unless a position is available. `locationStatus` says why:
 
 | Status | Meaning |
 | --- | --- |
-| `NOT_ASSIGNED` | No driver is assigned yet |
+| `NOT_ASSIGNED` | No driver offer yet |
 | `WAITING_FOR_DRIVER_ACCEPTANCE` | Offered, not yet accepted |
 | `LOCATION_UNAVAILABLE` | A driver is assigned but no position is available |
 | `AVAILABLE` | A current position is available |
 | `STALE` | A position is available but older than the freshness budget |
-| `TERMINAL_NO_LIVE_LOCATION` | The shipment reached a terminal status |
-
-When a position is present it carries `recordedAt`, `ageSeconds`, a `stale` flag, and — in your view only — an optional `accuracyMetres`.
+| `TERMINAL_NO_LIVE_LOCATION` | The shipment has ended |
 
 <Warning>
-  Never present a `STALE` position as the driver's current location. The `stale` flag and `ageSeconds` exist so your UI can say "last seen 4 minutes ago" rather than implying live movement.
+  Never present a `STALE` position as the driver's current location — show "last seen" using `ageSeconds`.
 </Warning>
 
 ## Polling
 
-`recommendedRefreshSeconds` is between 5 and 60 and reflects what is actually knowable right now — a shipment waiting for a driver has nothing to report as often as one in motion.
-
-<Tip>
-  Honour `recommendedRefreshSeconds` instead of choosing your own interval. Polling faster does not produce fresher data. For state changes, [webhooks](/webhooks) are the right mechanism; tracking is for showing a live map.
-</Tip>
+`recommendedRefreshSeconds` is `15` while a shipment is active and `30` once it has ended. Honour it; for state changes, use [webhooks](/webhooks).

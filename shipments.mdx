@@ -1,172 +1,165 @@
 ---
 title: "Shipments"
-description: "Create a shipment from an order reference and two map pins, and read it back."
+description: "Create, read, and change a shipment."
 ---
 
-Creating a shipment takes four fields. Everything else is either optional or derived.
-
-## The minimal request
+## Create
 
 ```bash
-curl -X POST "$BASE_URL/v2/external/shipments" \
+curl -X POST "$BASE_URL/api/v2/external/shipments" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
         "reference": "ORDER-1042",
-        "pickup":      { "latitude": 24.7136,   "longitude": 46.6753 },
+        "pickup":      { "savedLocationCode": "SANDBOX_PICKUP" },
         "destination": { "latitude": 24.774265, "longitude": 46.738586 },
         "recipient":   { "name": "Noura", "mobile": "0551234567" }
       }'
 ```
 
-Requires the `shipments:write` scope.
+Requires `shipments:write`.
 
-| Field | Notes |
+| Field | Rule |
 | --- | --- |
-| `reference` | Your order identifier, 1–128 characters. Also the idempotency key. |
-| `pickup` | Where to collect. A coordinate pin, or a saved pickup code. |
-| `destination` | Where to deliver. A coordinate pin. |
-| `recipient` | `name` (1–120 characters) and `mobile`. |
+| `reference` | Required, up to 128 characters. Your order identifier and the default idempotency key. |
+| `pickup` | Required. `savedLocationCode` (from [pickup locations](/availability#pickup-locations)), **or** `latitude` + `longitude` — never both. |
+| `destination` | Required. `latitude` −90…90, `longitude` −180…180, at most 6 decimals. |
+| `recipient.name` | Required, up to 120 characters. |
+| `recipient.mobile` | Required Saudi mobile: `05XXXXXXXX`, `5XXXXXXXX`, or `+9665XXXXXXXX`. |
+| `parcel` | Optional. `description` (≤ 160, default "Parcel"), `pieces` (1–100, default 1), `weightKg` (> 0, default 1). |
+| `codAmount` | Optional, > 0, two decimals. Omit for prepaid. |
+| `pickupWindow` | Optional `start` and `end` (UTC instants, `end` after `start`). Must fit the pickup location's hours. |
+| `quoteId` | Optional. A [quote](/availability#quotes) for the same pickup and destination, unused and not expired. |
+
+### The response
+
+`201` with `Location` and `ETag` headers. Captured on the sandbox:
+
+```json
+{
+  "id": "01a1933c-72ef-745d-af3d-eb836db7878c",
+  "reference": "AT-1793471573-1",
+  "status": "CREATED",
+  "trackingUrl": "/track/<tracking-code>",
+  "codAmount": null,
+  "deliveryFeeAmount": 34.00,
+  "deliveryFeeCurrency": "SAR",
+  "eta": null,
+  "proofAvailable": false,
+  "proofType": null,
+  "deliveredAt": null,
+  "failureReasonCode": null,
+  "cancellationReasonCode": null,
+  "driver": null,
+  "createdAt": "2026-10-31T18:32:54.767375Z",
+  "version": 0
+}
+```
+
+`deliveryFeeAmount` is the merchant delivery charge frozen on the shipment — the quoted price when you passed `quoteId`. `codAmount` is collected from the recipient and is separate.
+
+### Quote refusals
+
+| Status | `code` | Meaning |
+| --- | --- | --- |
+| `422` | `QUOTE_NOT_FOUND` | Unknown quote, or another merchant's |
+| `422` | `QUOTE_EXPIRED` | Older than 15 minutes |
+| `422` | `QUOTE_MISMATCH` | The quote was for a different pickup or destination point |
+| `409` | `QUOTE_ALREADY_USED` | The quote already priced another shipment |
+
+### Other refusals
+
+A pickup window outside the pickup location's hours is refused with `422 SHIPMENT_VALIDATION_FAILED`. Field validation failures are `422 VALIDATION_FAILED`; on this endpoint the response does not name the field, so validate inputs against the table above before sending.
 
 <Note>
-  There is no quote call to make first, no branch or pickup-location code to look up, no city or address to supply, no carrier to name, and no service level to choose. Sending more than the four fields above does not get you a better shipment — it gets you a rejected request, because the payload is closed.
+  Creation does not re-check delivery-company coverage. Call [serviceability](/availability#serviceability) before creating a shipment for a destination you have not served before.
 </Note>
-
-## What DropHub derives
-
-From those two coordinates alone, DropHub resolves address and city context, the route and its distance, whether the lane is covered, the price under your commercial terms, the eligible carrier, the service and its defaults, dispatch, the lifecycle starting state, SAR as the currency with prepaid as the payment mode, and the customer tracking URL.
-
-None of these are inputs, and none are configurable through this API.
-
-## Phone numbers
-
-`mobile` is a Saudi mobile number. Three shapes are accepted:
-
-| You send | DropHub stores |
-| --- | --- |
-| `0551234567` | `+966551234567` |
-| `551234567` | `+966551234567` |
-| `+966551234567` | `+966551234567` |
-
-Normalization happens on the way in, so you do not need to canonicalize first. Anything that is not one of these three shapes is rejected with `422`.
-
-## Optional fields
-
-Add these only when the default is wrong for the order.
-
-<AccordionGroup>
-  <Accordion title="Parcel — when it is not one small box">
-    The default parcel is one piece, 1 kg, ambient, described as "Parcel". Override any part of it:
-
-    ```json
-    "parcel": { "description": "Small box", "pieces": 1, "weightKg": 2.4 }
-    ```
-
-    `pieces` is 1–100. `weightKg` is greater than zero. `description` is 1–160 characters.
-  </Accordion>
-
-  <Accordion title="COD — when the driver collects payment">
-    ```json
-    "codAmount": 125.00
-    ```
-
-    An exact decimal in SAR, greater than zero, to two places. **Omit it entirely for prepaid orders** — that is what makes an order prepaid. Sending `0` is not the way to say "no COD"; leaving the field out is.
-  </Accordion>
-
-  <Accordion title="Saved pickup — when you always collect from the same place">
-    If your account has a saved pickup location, use its code instead of a coordinate:
-
-    ```json
-    "pickup": { "savedLocationCode": "MAIN" }
-    ```
-
-    `pickup` is one or the other — a `savedLocationCode`, or a `latitude`/`longitude` pair. Never both.
-  </Accordion>
-
-  <Accordion title="Pickup window — when collection is time-bound">
-    ```json
-    "pickupWindow": { "start": "2026-08-27T09:00:00Z", "end": "2026-08-27T12:00:00Z" }
-    ```
-
-    Both bounds are required together, in UTC. Omit the whole object to let DropHub collect as soon as it can.
-  </Accordion>
-</AccordionGroup>
-
-A request using all of them:
-
-```json
-{
-  "reference": "ORDER-1043",
-  "pickup": { "savedLocationCode": "MAIN" },
-  "destination": { "latitude": 24.774265, "longitude": 46.738586 },
-  "recipient": { "name": "Noura", "mobile": "+966551234567" },
-  "parcel": { "description": "Small box", "pieces": 1, "weightKg": 2.4 },
-  "codAmount": 125.00,
-  "pickupWindow": { "start": "2026-08-27T09:00:00Z", "end": "2026-08-27T12:00:00Z" }
-}
-```
-
-## The response
-
-Deliberately small — it carries what you cannot compute yourself and nothing more.
-
-```json
-{
-  "id": "0198f7c0-7f51-7000-8000-000000000001",
-  "reference": "ORDER-1042",
-  "status": "CREATED",
-  "trackingUrl": "/track/jhJ4hVsHM7APbKpYKg3f7w4m2fC0ZLDm7KqTKi2B1zA",
-  "codAmount": null,
-  "createdAt": "2026-08-27T06:00:00Z",
-  "version": 1
-}
-```
-
-`201` carries a `Location` header and an `ETag`. `trackingUrl` is the customer link, minted automatically — see [Tracking](/tracking).
 
 ## Retries are already safe
 
-`reference` is the idempotency key. You do not need to send an `Idempotency-Key` header.
-
 | Situation | Result |
 | --- | --- |
-| Same reference, same request | `200` with the original shipment |
-| Same reference, different request | `409` — pick a new reference |
-| New reference | `201` — a second shipment |
+| Same reference (or `Idempotency-Key`), same request | `200` with the original shipment |
+| Same reference (or key), different request | `409 IDEMPOTENCY_KEY_REUSED` |
+| New reference | `201` — a new shipment |
 
-<Warning>
-  Because `reference` is the key, reusing one order number for a genuinely different shipment is a conflict, not an update. One order number, one shipment.
-</Warning>
+See [Idempotency and ETags](/idempotency-and-etags).
 
-The optional `Idempotency-Key` header (16–128 characters) exists for callers who already have a key of their own. An explicit key always wins over the derived one. See [Idempotency and ETags](/idempotency-and-etags).
-
-## Read one back
+## Read
 
 ```bash
-curl "$BASE_URL/v2/external/shipments/$SHIPMENT_ID" \
+curl "$BASE_URL/api/v2/external/shipments/$SHIPMENT_ID" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-Requires `shipments:read`, and returns the same shape as the create response with a current `status` and `version`.
+Requires `shipments:read`. Same shape as the create response, plus — while they apply — `eta` and `driver`:
 
-<Note>
-  There is no collection endpoint and no search. Shipments are addressed by the `id` you were handed at creation — store it against your order. For progress, use [webhooks](/webhooks) rather than polling a list.
-</Note>
+```json
+"eta": {
+  "target": "PICKUP",
+  "estimatedArrivalAt": "2026-10-31T18:35:00.819847Z",
+  "estimatedMinutes": 2,
+  "calculatedAt": "2026-10-31T18:33:11.819847Z",
+  "distanceMetres": 1381
+},
+"driver": { "firstName": "Sandbox", "vehicleType": "CAR", "vehiclePlate": "SBX AB43" }
+```
+
+`eta.target` is `PICKUP` until pickup and `DELIVERY` after. `eta` is `null` before a driver accepts, right after pickup or a driver change until the next position arrives, and once the shipment has ended. `driver` shows only the first name, vehicle type, and plate — never a phone number.
+
+## Change
+
+```bash
+curl -X PATCH "$BASE_URL/api/v2/external/shipments/$SHIPMENT_ID" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "If-Match: \"3\"" \
+  -H "Content-Type: application/json" \
+  -d '{ "recipient": { "name": "Noura A.", "mobile": "+966551112222" } }'
+```
+
+Requires `shipments:write` and the shipment's current version in `If-Match`. Send only what changes:
+
+| Part | Accepted |
+| --- | --- |
+| `destination` | Before pickup, inside coverage, and only when it prices the same as the frozen fee |
+| `recipient` | Until the shipment ends |
+| `pickupWindow` | Until a driver accepts, inside the pickup location's hours |
+
+A successful change returns `200` with the shipment and a new `ETag`, and sends `shipment.updated`.
+
+| Status | `code` | Meaning |
+| --- | --- | --- |
+| `428` | `PRECONDITION_REQUIRED` | `If-Match` missing |
+| `412` | `PRECONDITION_FAILED` | Stale version — re-read first |
+| `409` | `SHIPMENT_CHANGE_NOT_ALLOWED` | Too late in the lifecycle for that part |
+| `409` | `SHIPMENT_PRICE_WOULD_CHANGE` | The new destination prices differently |
+| `409` | `SHIPMENT_CHANGE_NOT_SUPPORTED` | The shipment came from Salla or Zid; change it there |
+| `422` | `NO_PROVIDER_AVAILABLE` | The new destination is outside coverage |
+| `422` | `PICKUP_OUTSIDE_OPERATING_HOURS` | The window is outside pickup hours |
+| `422` | `SHIPMENT_VALIDATION_FAILED` | Nothing to change (`{}`) |
 
 ## Status
-
-Seven public statuses, and no others:
 
 | Status | Meaning |
 | --- | --- |
 | `CREATED` | Accepted; not yet assigned to a driver |
-| `ASSIGNED` | A driver is on it |
+| `ASSIGNED` | A driver accepted it |
 | `PICKED_UP` | Collected from the pickup point |
 | `OUT_FOR_DELIVERY` | On the way to the recipient |
 | `DELIVERED` | Terminal — delivered |
-| `FAILED` | Terminal — delivery did not succeed |
-| `CANCELLED` | Terminal — cancelled |
+| `FAILED` | Terminal — delivery did not succeed; `failureReasonCode` says why |
+| `NO_DRIVER_AVAILABLE` | The driver search ended without a driver; the shipment can still be cancelled |
+| `CANCELLED` | Terminal — cancelled; `cancellationReasonCode` says why |
 
 <Tip>
-  Treat status as a value to read, not a sequence to assume. DropHub's internal dispatch states are collapsed into these seven on the way out, so a shipment may skip what looks like a step, and `FAILED` is an ordinary outcome rather than an error.
+  Treat status as a value to read, not a sequence to assume. A shipment may skip what looks like a step.
 </Tip>
+
+## Proof and incidents
+
+- `GET /api/v2/external/shipments/{id}/proof` (`shipments:read`) returns `pickedUpAt`, `pickupPhotoPath`, `deliveredAt`, `deliveryProofType` (`PHOTO`), `deliveryProofPath`, and `failureReasonCode`. The paths point to `/proof/pickup/content` and `/proof/delivery/content`, which return the image (`image/jpeg`, `Cache-Control: no-store`) for the same bearer token. A missing image answers `404`.
+- `GET /api/v2/external/shipments/{id}/incidents` (`shipments:read`) returns an array of `{type, status, reasonCode, reportedAt, evidencePaths}`: `type` is `LOST`, `DAMAGED`, or `DELIVERY_FAILED`; `status` is `OPEN`, `RESOLVED`, or `FINAL`. Each evidence path returns an image for the same token.
+
+<Note>
+  There is no list or search endpoint. Store the shipment `id` against your order, and use [webhooks](/webhooks) for progress.
+</Note>
