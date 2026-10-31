@@ -14,7 +14,7 @@ curl -X POST "$BASE_URL/api/v2/external/webhook" \
   -d '{"url":"https://merchant.example/webhooks/drophub"}'
 ```
 
-Omit `events` to subscribe to all ten. To narrow it, list up to **7** event names:
+Omit `events` to subscribe to all ten. To narrow it, list the ones you act on:
 
 ```json
 { "url": "https://merchant.example/webhooks/drophub", "events": ["shipment.delivered", "shipment.failed", "shipment.cancelled"] }
@@ -86,10 +86,10 @@ Captured on the sandbox:
 }
 ```
 
-Every event carries `shipmentId`, `reference`, `merchantCompanyId` (the store), `lifecycleState`, `shipmentVersion`, `deliveryFeeAmount`, `deliveryFeeCurrency`, and `proofAvailable`. `reasonCode` is added on `shipment.failed` and `shipment.cancelled`; `eta` on `shipment.eta_updated`. `sequence` equals `shipmentVersion` and orders the events of one shipment.
+Every event carries `shipmentId`, `reference`, `merchantCompanyId` (the store), `status`, `lifecycleState`, `shipmentVersion`, `deliveryFeeAmount`, `deliveryFeeCurrency`, and `proofAvailable`. `reasonCode` is added on `shipment.failed` and `shipment.cancelled`; `eta` on `shipment.eta_updated`. `sequence` equals `shipmentVersion`. Several events can share one value — `shipment.eta_updated` does not change the shipment's version — so deduplicate on `Webhook-Id`, not on `sequence`.
 
 <Note>
-  `lifecycleState` is DropHub's internal state name (for example `PENDING_APPROVAL`, `READY_FOR_DISPATCH`, `ACCEPTED`, `DELIVERY_FAILED`), not the [status](/shipments#status) of the REST API. Drive your logic from `type`, and read the shipment when you need its status.
+  `status` is the same [status](/shipments#status) the shipment read returns. `lifecycleState` is DropHub's internal state name (for example `PENDING_APPROVAL`, `ACCEPTED`, `DELIVERY_FAILED`); it is kept for existing receivers — use `status`.
 </Note>
 
 Several stores may use one receiver URL; `data.merchantCompanyId` identifies the store and each store has its own signing secret.
@@ -158,11 +158,11 @@ curl -X PATCH "$BASE_URL/api/v2/external/webhook" \
   -d '{"status":"PAUSED"}'
 ```
 
-`PATCH` accepts `url`, `status` (`ACTIVE` or `PAUSED`), and `events` (at most 7). An unknown event name answers `422 UNSUPPORTED_EVENT_TYPE`.
+`PATCH` accepts `url`, `status` (`ACTIVE` or `PAUSED`), and `events`. An unknown event name answers `422 UNSUPPORTED_EVENT_TYPE`.
 
-<Warning>
-  Pause instead of deleting. After `DELETE /api/v2/external/webhook`, registering a webhook again is currently refused with `409 IDEMPOTENCY_KEY_REUSED`, and creating a second webhook while one exists is refused the same way.
-</Warning>
+<Note>
+  After `DELETE /api/v2/external/webhook` you can register a new webhook; it gets a new signing secret. While a webhook exists, a second `POST` with a different body is refused with `409 IDEMPOTENCY_KEY_REUSED`.
+</Note>
 
 ## Rotating the secret
 

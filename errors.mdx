@@ -33,18 +33,18 @@ Every error is `application/problem+json` ([RFC 9457](https://www.rfc-editor.org
 | `title`, `detail` | Human-readable; may be reworded or localized |
 | `instance` | The path that failed |
 | `timestamp`, `correlationId`, `requestId` | Quote these when reporting a problem |
-| `violations` | On some validation failures: `[{field, code, message}]` |
+| `violations` | On validation failures: `[{field, code, message}]` |
 | `nextAction` | On `SHIPMENT_RETURN_REQUIRED`: what to do instead |
 
 ## Validation failures
 
-`422 VALIDATION_FAILED`. Quote requests and webhook changes name the field:
+`422 VALIDATION_FAILED`. The response names each field:
 
 ```json
 { "code": "VALIDATION_FAILED", "violations": [ { "field": "destinationLatitude", "code": "OUT_OF_RANGE", "message": "This field is outside the allowed range." } ] }
 ```
 
-Shipment create, cancel, and sandbox requests currently answer `"detail": "One or more request values are invalid."` without `violations`. A body with an unknown property or broken JSON is `400 MALFORMED_JSON`.
+Every field validation failure lists the offending fields in `violations`. A body with an unknown property or broken JSON is `400 MALFORMED_JSON`.
 
 ## Status codes
 
@@ -70,8 +70,8 @@ Shipment create, cancel, and sandbox requests currently answer `"detail": "One o
 | `QUOTE_ALREADY_USED`, `IDEMPOTENCY_KEY_REUSED` | 409 | Create shipment |
 | `SHIPMENT_RETURN_REQUIRED` | 409 | Cancel after pickup |
 | `SHIPMENT_CHANGE_NOT_ALLOWED`, `SHIPMENT_PRICE_WOULD_CHANGE`, `SHIPMENT_CHANGE_NOT_SUPPORTED` | 409 | Change shipment |
-| `NO_PROVIDER_AVAILABLE`, `PICKUP_OUTSIDE_OPERATING_HOURS` | 422 | Change shipment |
-| `SHIPMENT_VALIDATION_FAILED` | 422 | Create (for example a pickup window outside hours) or an empty change |
+| `PICKUP_OUTSIDE_OPERATING_HOURS` | 422 | Create or change shipment |
+| `SHIPMENT_VALIDATION_FAILED` | 422 | An invalid order, or an empty change |
 | `WEBHOOK_NOT_CONFIGURED` | 404 | Webhook reads and changes |
 | `UNSUPPORTED_EVENT_TYPE` | 422 | Webhook `events` |
 | `TRACKING_LINK_NOT_FOUND` | 404 | Public tracking |

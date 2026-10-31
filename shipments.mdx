@@ -69,10 +69,10 @@ Requires `shipments:write`.
 
 ### Other refusals
 
-A pickup window outside the pickup location's hours is refused with `422 SHIPMENT_VALIDATION_FAILED`. Field validation failures are `422 VALIDATION_FAILED`; on this endpoint the response does not name the field, so validate inputs against the table above before sending.
+A pickup window outside the pickup location's hours is refused with `422 PICKUP_OUTSIDE_OPERATING_HOURS`. Field validation failures are `422 VALIDATION_FAILED` with a `violations` list naming each field (including an invalid `Idempotency-Key`).
 
 <Note>
-  Creation does not re-check delivery-company coverage. Call [serviceability](/availability#serviceability) before creating a shipment for a destination you have not served before.
+  Creation accepts any destination; dispatch offers the shipment to the nearest available driver. [Serviceability](/availability#serviceability) tells you in advance whether a delivery company covers the destination.
 </Note>
 
 ## Retries are already safe
@@ -121,7 +121,7 @@ Requires `shipments:write` and the shipment's current version in `If-Match`. Sen
 
 | Part | Accepted |
 | --- | --- |
-| `destination` | Before pickup, inside coverage, and only when it prices the same as the frozen fee |
+| `destination` | Before pickup, and only when it prices the same as the frozen fee (any destination, as at creation) |
 | `recipient` | Until the shipment ends |
 | `pickupWindow` | Until a driver accepts, inside the pickup location's hours |
 
@@ -134,7 +134,6 @@ A successful change returns `200` with the shipment and a new `ETag`, and sends 
 | `409` | `SHIPMENT_CHANGE_NOT_ALLOWED` | Too late in the lifecycle for that part |
 | `409` | `SHIPMENT_PRICE_WOULD_CHANGE` | The new destination prices differently |
 | `409` | `SHIPMENT_CHANGE_NOT_SUPPORTED` | The shipment came from Salla or Zid; change it there |
-| `422` | `NO_PROVIDER_AVAILABLE` | The new destination is outside coverage |
 | `422` | `PICKUP_OUTSIDE_OPERATING_HOURS` | The window is outside pickup hours |
 | `422` | `SHIPMENT_VALIDATION_FAILED` | Nothing to change (`{}`) |
 

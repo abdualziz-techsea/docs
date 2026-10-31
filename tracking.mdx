@@ -48,10 +48,6 @@ Requires `tracking:read`. Captured on the sandbox:
 
 `history` lists the [statuses](/shipments#status) in order with the instant each was reached. `eta` follows the same rules as on the [shipment read](/shipments#read).
 
-<Warning>
-  `history` can currently contain a `CANCELLED` step recorded when a cancel request was **refused** after pickup. Use the top-level `status`, not the last history step, as the shipment's state.
-</Warning>
-
 ## The customer's view
 
 Every shipment gets a tracking URL at creation (`trackingUrl`). The last path segment is the code:
