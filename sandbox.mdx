@@ -40,6 +40,17 @@ curl -X POST "$BASE_URL/api/v2/external/sandbox/dispatch-holds" -H "Authorizatio
 
 The next shipment you create stays `CREATED`, so you can test changes and cancellation before a driver accepts.
 
+To test the no-driver outcome instead, arm the hold with:
+
+```bash
+curl -X POST "$BASE_URL/api/v2/external/sandbox/dispatch-holds" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"outcome":"NO_DRIVER_AVAILABLE"}'
+```
+
+The next shipment is created with status `NO_DRIVER_AVAILABLE`: its driver search is closed as a search deadline would close it, no driver is offered the work, and `shipment.no_driver_available` is sent. Cancel it as usual.
+
 ## Fail a delivery
 
 ```bash
@@ -49,7 +60,7 @@ curl -X POST "$BASE_URL/api/v2/external/sandbox/shipments/$SHIPMENT_ID/delivery-
   -d '{"reason":"CUSTOMER_UNAVAILABLE"}'
 ```
 
-The sandbox driver reports a failed delivery from the drop-off point. The shipment must be carried by the sandbox driver (picked up or out for delivery); otherwise `409 SANDBOX_DRIVER_NOT_CARRYING_SHIPMENT`. The result is `FAILED`, a `shipment.failed` event, and a `DELIVERY_FAILED` incident. Read the shipment for `failureReasonCode` — the response to this call currently leaves it `null`.
+The sandbox driver reports a failed delivery from the drop-off point. The shipment must be carried by the sandbox driver (picked up or out for delivery); otherwise `409 SANDBOX_DRIVER_NOT_CARRYING_SHIPMENT`. The response is the `FAILED` shipment with `failureReasonCode`; a `shipment.failed` event and a `DELIVERY_FAILED` incident follow.
 
 ## Reset
 
@@ -59,6 +70,4 @@ curl -X POST "$BASE_URL/api/v2/external/sandbox/reset" -H "Authorization: Bearer
 
 Clears the sandbox state and increments `generation`.
 
-<Warning>
-  Reset currently fails with `500` while a webhook is configured. Pause your webhook rather than relying on reset until this is fixed.
-</Warning>
+Reset also removes your webhook; register it again afterwards.

@@ -48,6 +48,12 @@ paths:
                 client_secret:
                   type: string
                   maxLength: 128
+                scope:
+                  type: string
+                  maxLength: 512
+                  description: Optional space-separated scopes (RFC 6749 section 3.3). The token carries
+                    the requested scopes the credential holds; omit it to receive every granted scope.
+                    A request naming none of the granted scopes is refused with invalid_scope.
       responses:
         '200':
           description: Issued access token
@@ -71,8 +77,11 @@ paths:
                     type: integer
                     format: int64
                     minimum: 60
+                  scope:
+                    type: string
+                    description: The scopes the token carries, space-separated.
         '400':
-          description: invalid_request or unsupported_grant_type (OAuth JSON error)
+          description: invalid_request, unsupported_grant_type or invalid_scope (OAuth JSON error)
         '401':
           description: invalid_client (OAuth JSON error)
         '429':
@@ -179,10 +188,25 @@ paths:
       summary: Keep the next sandbox shipment before the driver-offer boundary
       description: Sandbox deployment only. Idempotently arms one tenant-bound hold. The next shipment
         consumes it atomically and remains PENDING_APPROVAL with no driver offer, allowing the merchant
-        cancellation boundary to be exercised deterministically.
+        cancellation boundary to be exercised deterministically. With outcome NO_DRIVER_AVAILABLE the
+        next shipment is instead approved and its driver search closed at once through the path a search
+        deadline takes, so it is created as NO_DRIVER_AVAILABLE and shipment.no_driver_available is sent;
+        no driver is offered the work.
       security:
       - oauthClientCredentials:
         - shipments:write
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                outcome:
+                  type: string
+                  enum:
+                  - NO_DRIVER_AVAILABLE
       responses:
         '200':
           description: Readiness with nextShipmentDispatchHeld set to true
@@ -198,6 +222,8 @@ paths:
           $ref: '#/components/responses/ResourceNotFound'
         '409':
           $ref: '#/components/responses/StateConflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
   /api/v2/external/quotes:
     post:
       tags:
@@ -388,16 +414,16 @@ paths:
       operationId: changeExternalShipment
       summary: Change the destination or recipient of an own Direct API shipment
       description: 'If-Match carries the shipment version from its ETag. A new destination is accepted
-        before pickup (CREATED, ASSIGNED, NO_DRIVER_AVAILABLE) when it is inside the same coverage checkout
-        serviceability applies and the merchant''s agreement prices the new route exactly as the frozen
-        delivery fee; the fee is never restated. A new recipient is accepted until the shipment is delivered,
-        failed or cancelled. The assigned driver keeps the assignment and sees the new destination; a
-        shipment.updated webhook is sent. A new pickupWindow is accepted until a driver accepts the shipment
-        and must fit the pickup location''s opening hours (422 PICKUP_OUTSIDE_OPERATING_HOURS); the price
-        does not depend on it. Shipments that came from a store platform (Salla, Zid) are changed in that
-        platform: 409 SHIPMENT_CHANGE_NOT_SUPPORTED. Other refusals: 412 PRECONDITION_FAILED (stale If-Match),
-        409 SHIPMENT_CHANGE_NOT_ALLOWED (state), 409 SHIPMENT_PRICE_WOULD_CHANGE, 422 OUTSIDE_MERCHANT_COVERAGE
-        or NO_PROVIDER_AVAILABLE, 422 SHIPMENT_VALIDATION_FAILED (nothing to change).'
+        before pickup (CREATED, ASSIGNED, NO_DRIVER_AVAILABLE) when the merchant''s agreement prices the
+        new route exactly as the frozen delivery fee; the fee is never restated. As at creation, any destination
+        is accepted; serviceability is the advisory coverage check. A new recipient is accepted until
+        the shipment is delivered, failed or cancelled. The assigned driver keeps the assignment and sees
+        the new destination; a shipment.updated webhook is sent. A new pickupWindow is accepted until
+        a driver accepts the shipment and must fit the pickup location''s opening hours (422 PICKUP_OUTSIDE_OPERATING_HOURS);
+        the price does not depend on it. Shipments that came from a store platform (Salla, Zid) are changed
+        in that platform: 409 SHIPMENT_CHANGE_NOT_SUPPORTED. Other refusals: 412 PRECONDITION_FAILED (stale
+        If-Match), 409 SHIPMENT_CHANGE_NOT_ALLOWED (state), 409 SHIPMENT_PRICE_WOULD_CHANGE, 428 PRECONDITION_REQUIRED
+        (no If-Match), 422 SHIPMENT_VALIDATION_FAILED (nothing to change).'
       security:
       - oauthClientCredentials:
         - shipments:write
@@ -768,7 +794,9 @@ paths:
       - External Webhooks
       operationId: createExternalWebhook
       summary: Configure the merchant's single shipment webhook
-      description: Returns the HMAC signing secret once. Events default to every partner event.
+      description: Returns the HMAC signing secret once. Events default to every partner event. Repeating
+        the same request returns the existing endpoint and secret with 200; a different request while
+        an endpoint exists is 409. After DELETE a new endpoint can be created.
       security:
       - oauthClientCredentials:
         - webhooks:manage
@@ -782,6 +810,8 @@ paths:
               $ref: '#/components/schemas/ExternalWebhookRequest'
       responses:
         '201':
+          $ref: '#/components/responses/ExternalWebhookSecretResource'
+        '200':
           $ref: '#/components/responses/ExternalWebhookSecretResource'
         '401':
           $ref: '#/components/responses/AuthenticationFailed'
@@ -1692,7 +1722,9 @@ components:
         the platform setting dispatch.tracking.eta-notify-threshold (default 5 minutes). shipment.updated
         is sent when the merchant changes the destination or recipient through PATCH /api/v2/external/shipments/{shipmentId};
         lifecycleState is unchanged. An endpoint created without an explicit list subscribes to every
-        type; existing endpoints keep the list they were created with.'
+        type; existing endpoints keep the list they were created with. Every event''s data carries status,
+        the same ExternalShipmentStatus the shipment read returns; lifecycleState is DropHub''s internal
+        state, kept for existing receivers.'
     ExternalWebhookPatch:
       type: object
       additionalProperties: false
@@ -1709,7 +1741,7 @@ components:
         events:
           type: array
           uniqueItems: true
-          maxItems: 7
+          maxItems: 10
           items:
             $ref: '#/components/schemas/ExternalWebhookEventType'
     ExternalWebhookRequest:
@@ -1725,7 +1757,7 @@ components:
         events:
           type: array
           uniqueItems: true
-          maxItems: 7
+          maxItems: 10
           items:
             $ref: '#/components/schemas/ExternalWebhookEventType'
           description: Omit to subscribe to every event.

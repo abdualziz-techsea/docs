@@ -36,6 +36,7 @@ The body must be `application/x-www-form-urlencoded`; JSON is refused with `415`
 
 ```json
 {
+  "scope": "quotes:write shipments:read shipments:write tracking:read webhooks:manage",
   "access_token": "<ES256-signed JWT>",
   "expires_in": 900,
   "token_type": "Bearer"
@@ -54,10 +55,10 @@ Send it on every `/api/v2/external` request as `Authorization: Bearer <access_to
 | `tracking:read` | Authenticated tracking, driver position, and ETA |
 | `webhooks:manage` | Configure your webhook and rotate its secret |
 
-A token carries every scope its credential was granted. A request outside them is rejected with `403 ACCESS_DENIED`.
+A token carries every scope its credential was granted, unless you ask for fewer (below). A request outside them is rejected with `403 ACCESS_DENIED`.
 
 <Info>
-  Scopes are fixed when the credential is issued. The token request takes no `scope` parameter; one that is sent is ignored and the token still carries all of the credential's scopes.
+  Scopes are fixed when the credential is issued. Send an optional `scope` (space-separated) to get a token for fewer of them: the token carries the requested scopes the credential holds, and the response's `scope` says which. A request naming none of the credential's scopes is refused with `400 invalid_scope`. Without `scope`, the token carries all of them.
 </Info>
 
 Each credential belongs to one merchant company. A partner serving several stores uses one credential per store. A shipment that belongs to another merchant answers `404`, never `403` — its existence is not disclosed.
@@ -74,6 +75,7 @@ Read `expires_in` from the response rather than assuming a duration. Cache the t
 | --- | --- | --- |
 | `400` | `{"error":"invalid_request"}` | No client authentication or a malformed form |
 | `400` | `{"error":"unsupported_grant_type"}` | `grant_type` is not `client_credentials` |
+| `400` | `{"error":"invalid_scope"}` | `scope` names none of the credential's scopes |
 | `401` | `{"error":"invalid_client"}` | Unknown, wrong, or revoked credential |
 | `415` | problem details | The body was not form-encoded |
-| `429` | — | Too many token requests; honour `Retry-After` |
+| `429` | `{"error":"rate_limited"}` | Too many token requests; honour `Retry-After` |
