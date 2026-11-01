@@ -20,7 +20,7 @@ Omit `events` to subscribe to all ten. To narrow it, list the ones you act on:
 { "url": "https://merchant.example/webhooks/drophub", "events": ["shipment.delivered", "shipment.failed", "shipment.cancelled"] }
 ```
 
-The `201` response carries the endpoint and the signing secret (captured on the sandbox, secret redacted):
+The `201` response carries the endpoint and the signing secret (captured on the sandbox, secret redacted). Repeating the same request returns the same endpoint and secret with `200`:
 
 ```json
 {
@@ -86,7 +86,7 @@ Captured on the sandbox:
 }
 ```
 
-Every event carries `shipmentId`, `reference`, `merchantCompanyId` (the store), `status`, `lifecycleState`, `shipmentVersion`, `deliveryFeeAmount`, `deliveryFeeCurrency`, and `proofAvailable`. `reasonCode` is added on `shipment.failed` and `shipment.cancelled`; `eta` on `shipment.eta_updated`. `sequence` equals `shipmentVersion`. Several events can share one value — `shipment.eta_updated` does not change the shipment's version — so deduplicate on `Webhook-Id`, not on `sequence`.
+Every event carries `shipmentId`, `reference`, `merchantCompanyId` (the store), `status`, `lifecycleState`, `shipmentVersion`, `deliveryFeeAmount`, `deliveryFeeCurrency`, and `proofAvailable`. `reasonCode` is added on `shipment.failed` and `shipment.cancelled`; `eta` on `shipment.eta_updated`. `sequence` equals `shipmentVersion`. Several events can share one value — `shipment.eta_updated` does not change the shipment's version — so deduplicate on `Webhook-Id`, not on `sequence`. Deliveries of different events are not ordered: a retried `shipment.created` can arrive after `shipment.no_driver_available` for the same shipment, so apply events by `sequence` and ignore an older one.
 
 <Note>
   `status` is the same [status](/shipments#status) the shipment read returns. `lifecycleState` is DropHub's internal state name (for example `PENDING_APPROVAL`, `ACCEPTED`, `DELIVERY_FAILED`); it is kept for existing receivers — use `status`.
