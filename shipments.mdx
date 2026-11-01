@@ -100,10 +100,10 @@ Same shape as the create response, plus — while they apply — `eta` and `driv
   "calculatedAt": "2026-10-31T18:33:11.819847Z",
   "distanceMetres": 1381
 },
-"driver": { "firstName": "Sandbox", "vehicleType": "CAR", "vehiclePlate": "SBX AB43" }
+"driver": { "firstName": "Sandbox", "phone": "05XXXXXXXX", "vehicleType": "CAR", "vehiclePlate": "SBX AB43" }
 ```
 
-`eta.target` is `PICKUP` until pickup and `DELIVERY` after. `eta` is `null` before a driver accepts, right after pickup or a driver change until the next position arrives, and once the shipment has ended. `driver` shows only the first name, vehicle type, and plate — never a phone number.
+`eta.target` is `PICKUP` until pickup and `DELIVERY` after. `eta` is `null` before a driver accepts, right after pickup or a driver change until the next position arrives, and once the shipment has ended. `driver` shows the first name, phone, vehicle type, and plate.
 
 ## Change
 
