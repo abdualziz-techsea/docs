@@ -3,7 +3,7 @@ title: "Errors"
 description: "Problem details, stable machine codes, and what to retry."
 ---
 
-Every error is `application/problem+json` ([RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html)) with DropHub extensions. Captured on the sandbox:
+Every error is `application/problem+json` ([RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html)) with DropHub extensions.
 
 ```json
 {
@@ -52,7 +52,7 @@ Every field validation failure lists the offending fields in `violations`. A bod
 | --- | --- | --- |
 | `400` | Malformed JSON or unknown property | No — fix the request |
 | `401` | Missing, malformed, or expired token | Once, with a fresh token |
-| `403` | Valid token without the required scope | No |
+| `403` | The action is not allowed for your account | No |
 | `404` | No such resource for this credential (including another merchant's) | No |
 | `409` | Conflict with the resource's state, a used quote, or a reused idempotency key | No — re-read and reconcile |
 | `412` | `If-Match` is stale | Re-read, then retry |
@@ -75,4 +75,4 @@ Every field validation failure lists the offending fields in `violations`. A bod
 | `WEBHOOK_NOT_CONFIGURED` | 404 | Webhook reads and changes |
 | `UNSUPPORTED_EVENT_TYPE` | 422 | Webhook `events` |
 | `TRACKING_LINK_NOT_FOUND` | 404 | Public tracking |
-| `SANDBOX_DRIVER_NOT_CARRYING_SHIPMENT`, `INSUFFICIENT_SCOPE`, `SANDBOX_ONLY` | 409, 403, 404 | Sandbox controls |
+| `SANDBOX_DRIVER_NOT_CARRYING_SHIPMENT`, `SANDBOX_ONLY` | 409, 404 | Sandbox controls |

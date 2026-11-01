@@ -12,13 +12,13 @@ curl -X POST "$BASE_URL/api/v2/external/shipments/$SHIPMENT_ID/cancel" \
   -d '{"reason":"CUSTOMER_CHANGED_MIND"}'
 ```
 
-Requires `shipments:write`. The body is optional; `reason` matches `^[A-Z][A-Z0-9_]{1,47}$` and defaults to `MERCHANT_REQUESTED`. The response is `200` with the shipment, now `CANCELLED`, with `cancellationReasonCode` and the frozen `deliveryFeeAmount`. Cancelling an already-cancelled shipment returns the same `200`.
+The body is optional; `reason` matches `^[A-Z][A-Z0-9_]{1,47}$` and defaults to `MERCHANT_REQUESTED`. The response is `200` with the shipment, now `CANCELLED`, with `cancellationReasonCode` and the frozen `deliveryFeeAmount`. Cancelling an already-cancelled shipment returns the same `200`.
 
 ## When it is refused
 
 <AccordionGroup>
   <Accordion title="409 SHIPMENT_RETURN_REQUIRED — the parcel was picked up">
-    Captured on the sandbox:
+    Example response:
 
     ```json
     {

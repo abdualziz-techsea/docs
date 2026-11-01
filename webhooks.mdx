@@ -3,7 +3,7 @@ title: "Webhooks"
 description: "One endpoint, ten events, and how to verify that a delivery came from DropHub."
 ---
 
-Webhooks tell your system that a shipment changed, without polling. Managing them requires `webhooks:manage`. A merchant has **one** webhook: the resource is `/api/v2/external/webhook`, singular.
+Webhooks tell your system that a shipment changed, without polling. A merchant has **one** webhook: the resource is `/api/v2/external/webhook`, singular.
 
 ## Register it
 
@@ -20,7 +20,7 @@ Omit `events` to subscribe to all ten. To narrow it, list the ones you act on:
 { "url": "https://merchant.example/webhooks/drophub", "events": ["shipment.delivered", "shipment.failed", "shipment.cancelled"] }
 ```
 
-The `201` response carries the endpoint and the signing secret (captured on the sandbox, secret redacted). Repeating the same request returns the same endpoint and secret with `200`:
+The `201` response carries the endpoint and the signing secret. Repeating the same request returns the same endpoint and secret with `200`:
 
 ```json
 {
@@ -63,7 +63,7 @@ An endpoint created before the newer events existed keeps its own list; add them
 
 ## The delivery
 
-Captured on the sandbox:
+Example delivery:
 
 ```json
 {

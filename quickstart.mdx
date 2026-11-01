@@ -3,7 +3,7 @@ title: "Quickstart"
 description: "From client credentials to a tracked shipment."
 ---
 
-You need a `client_id` and `client_secret` for your merchant account. They are issued from the DropHub console. On the sandbox, run [Sandbox bootstrap](/sandbox) once first so your account has a pickup location, pricing, and a sandbox driver.
+You need a `client_id` and `client_secret` for your merchant account. Copy them from the DropHub dashboard. On the sandbox, run [Sandbox bootstrap](/sandbox) once first so your account has a pickup location, pricing, and a sandbox driver.
 
 <Steps>
   <Step title="Get a token">
@@ -48,7 +48,7 @@ You need a `client_id` and `client_secret` for your merchant account. They are i
     SHIPMENT_ID=$(jq -r .id shipment.json)
     ```
 
-    `201` means created; `200` means DropHub already had this order and returns the original shipment. A response captured on the sandbox:
+    `201` means created; `200` means DropHub already had this order and returns the original shipment. Example response:
 
     ```json
     {
