@@ -1104,10 +1104,14 @@ components:
     ExternalAssignedDriver:
       type: object
       additionalProperties: false
-      description: The driver who accepted the shipment, while it is still moving. Phone number, surname,
-        licence and identifiers are not disclosed; contact goes through the shipment conversation.
+      description: The driver who accepted the shipment, while it is still moving. Surname, licence and
+        identifiers are not disclosed.
       properties:
         firstName:
+          type:
+          - string
+          - 'null'
+        phone:
           type:
           - string
           - 'null'
