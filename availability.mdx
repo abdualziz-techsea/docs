@@ -10,7 +10,7 @@ curl "$BASE_URL/api/v2/external/pickup-locations?limit=20" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-Requires `shipments:read`. `limit` is 1–100; follow `nextCursor` with `cursor`. Captured on the sandbox (hours shortened):
+`limit` is 1–100; follow `nextCursor` with `cursor`:
 
 ```json
 {
@@ -45,7 +45,7 @@ curl "$BASE_URL/api/v2/external/coverage/areas" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-Requires `quotes:write`. `scope` is `UNRESTRICTED` (no limit), `AREAS` (only the listed `cities`), or `NONE`. Each city has `cityId`, `cityCode`, `nameAr`, `nameEn`, `wholeCity`, and `districts` when only part of the city is served. No delivery company is named.
+`scope` is `UNRESTRICTED` (no limit), `AREAS` (only the listed `cities`), or `NONE`. Each city has `cityId`, `cityCode`, `nameAr`, `nameEn`, `wholeCity`, and `districts` when only part of the city is served. No delivery company is named.
 
 ```json
 { "scope": "AREAS", "cities": [ { "cityId": "ea59d6f2-6e99-4918-81ed-d008d544429b", "cityCode": "RUH", "nameAr": "الرياض", "nameEn": "Riyadh", "districts": [], "wholeCity": true } ] }
@@ -66,7 +66,7 @@ curl -X POST "$BASE_URL/api/v2/external/quotes" \
   }'
 ```
 
-Requires `quotes:write`. `merchantId`, `destinationLatitude`, and `destinationLongitude` are required; use the `merchantId`, `branchId`, and `pickupLocationId` of the location you ship from. Captured on the sandbox (route geometry shortened):
+`merchantId`, `destinationLatitude`, and `destinationLongitude` are required; use the `merchantId`, `branchId`, and `pickupLocationId` of the location you ship from.
 
 ```json
 {
@@ -97,7 +97,7 @@ curl -X POST "$BASE_URL/api/v2/external/serviceability" \
   }'
 ```
 
-Requires `quotes:write`. `pickupWindow` is optional. The answer is always `200` for a valid request:
+`pickupWindow` is optional. The answer is always `200` for a valid request:
 
 ```json
 { "serviceable": true, "unavailableReasonCode": null, "evaluatedAt": "2026-10-31T18:39:23.915856Z", "coverageZoneVersionId": "34587cde-129a-3edd-9ccc-ec2df14912b6" }

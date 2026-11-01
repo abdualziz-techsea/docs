@@ -1,21 +1,17 @@
 ---
 title: "Authentication"
-description: "OAuth 2.0 client credentials, scopes, and how tokens behave."
+description: "Use your client ID and secret to get an access token."
 ---
 
-External integrations authenticate with the OAuth 2.0 **client-credentials** grant. The credential belongs to your merchant company, and every request it makes is attributed to that company.
+## Your credentials
 
-## Getting a credential
-
-A `client_id` and `client_secret` are issued from the DropHub console by a signed-in operator, with the scopes you choose. One credential is active per merchant at a time.
+Copy your `client_id` and `client_secret` from the DropHub dashboard. They give full access to the External API for your store.
 
 <Warning>
-  The secret is shown once, at creation. DropHub stores only a verifier. If it is lost, revoke the credential and issue a new one from the console.
+  The secret is shown once. Store it safely. If it is lost, revoke it in the dashboard and create a new one.
 </Warning>
 
-## Requesting a token
-
-HTTP Basic:
+## Get a token
 
 ```bash
 curl -X POST "$BASE_URL/api/v2/oauth/token" \
@@ -32,50 +28,30 @@ curl -X POST "$BASE_URL/api/v2/oauth/token" \
   --data-urlencode client_secret="$CLIENT_SECRET"
 ```
 
-The body must be `application/x-www-form-urlencoded`; JSON is refused with `415`. The response (token redacted):
+The body must be `application/x-www-form-urlencoded`. The response:
 
 ```json
 {
-  "scope": "quotes:write shipments:read shipments:write tracking:read webhooks:manage",
-  "access_token": "<ES256-signed JWT>",
+  "access_token": "<token>",
   "expires_in": 900,
   "token_type": "Bearer"
 }
 ```
 
-Send it on every `/api/v2/external` request as `Authorization: Bearer <access_token>`. Tokens are verifiable with the keys at `GET /api/v2/oauth/jwks.json`.
+Send it on every `/api/v2/external` request as `Authorization: Bearer <access_token>`.
 
-## Scopes
-
-| Scope | Grants |
-| --- | --- |
-| `quotes:write` | Quotes, serviceability, and coverage areas |
-| `shipments:read` | Read shipments, pickup locations, proof, and incidents |
-| `shipments:write` | Create, change, and cancel shipments; sandbox controls |
-| `tracking:read` | Authenticated tracking, driver position, and ETA |
-| `webhooks:manage` | Configure your webhook and rotate its secret |
-
-A token carries every scope its credential was granted, unless you ask for fewer (below). A request outside them is rejected with `403 ACCESS_DENIED`.
-
-<Info>
-  Scopes are fixed when the credential is issued. Send an optional `scope` (space-separated) to get a token for fewer of them: the token carries the requested scopes the credential holds, and the response's `scope` says which. A request naming none of the credential's scopes is refused with `400 invalid_scope`. Without `scope`, the token carries all of them.
-</Info>
-
-Each credential belongs to one merchant company. A partner serving several stores uses one credential per store. A shipment that belongs to another merchant answers `404`, never `403` — its existence is not disclosed.
+Each credential belongs to one store. A partner serving several stores uses one credential per store. A shipment that belongs to another store answers `404`.
 
 ## Token lifecycle
 
-Read `expires_in` from the response rather than assuming a duration. Cache the token and refresh a little before expiry. When a request fails with `401`, the response carries `WWW-Authenticate: Bearer` (with `error="invalid_token"` when a token was sent); obtain a new token and retry once. Repeated `401`s after a fresh token mean the credential was revoked.
+Read `expires_in` rather than assuming a duration. Cache the token and refresh a little before it expires. If a request fails with `401`, get a new token and retry once. Repeated `401`s after a fresh token mean the credential was revoked.
 
 ## Token endpoint errors
 
-`/api/v2/oauth/token` uses OAuth error semantics, not problem details:
-
 | Status | Body | Meaning |
 | --- | --- | --- |
-| `400` | `{"error":"invalid_request"}` | No client authentication or a malformed form |
+| `400` | `{"error":"invalid_request"}` | No credentials or a malformed form |
 | `400` | `{"error":"unsupported_grant_type"}` | `grant_type` is not `client_credentials` |
-| `400` | `{"error":"invalid_scope"}` | `scope` names none of the credential's scopes |
 | `401` | `{"error":"invalid_client"}` | Unknown, wrong, or revoked credential |
 | `415` | problem details | The body was not form-encoded |
-| `429` | `{"error":"rate_limited"}` | Too many token requests; honour `Retry-After` |
+| `429` | `{"error":"rate_limited"}` | Too many token requests; wait for `Retry-After` |

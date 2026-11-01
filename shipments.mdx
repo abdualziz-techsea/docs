@@ -17,8 +17,6 @@ curl -X POST "$BASE_URL/api/v2/external/shipments" \
       }'
 ```
 
-Requires `shipments:write`.
-
 | Field | Rule |
 | --- | --- |
 | `reference` | Required, up to 128 characters. Your order identifier and the default idempotency key. |
@@ -33,7 +31,7 @@ Requires `shipments:write`.
 
 ### The response
 
-`201` with `Location` and `ETag` headers. Captured on the sandbox:
+`201` with `Location` and `ETag` headers:
 
 ```json
 {
@@ -92,7 +90,7 @@ curl "$BASE_URL/api/v2/external/shipments/$SHIPMENT_ID" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-Requires `shipments:read`. Same shape as the create response, plus — while they apply — `eta` and `driver`:
+Same shape as the create response, plus — while they apply — `eta` and `driver`:
 
 ```json
 "eta": {
@@ -117,7 +115,7 @@ curl -X PATCH "$BASE_URL/api/v2/external/shipments/$SHIPMENT_ID" \
   -d '{ "recipient": { "name": "Noura A.", "mobile": "+966551112222" } }'
 ```
 
-Requires `shipments:write` and the shipment's current version in `If-Match`. Send only what changes:
+Send the shipment's current version in `If-Match`. Send only what changes:
 
 | Part | Accepted |
 | --- | --- |
